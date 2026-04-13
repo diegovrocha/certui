@@ -27,7 +27,7 @@ brews:
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
-    folder: Formula
+    directory: Formula
     homepage: "https://github.com/diegovrocha/certool"
     description: "Digital certificate conversion, validation and generation TUI"
     license: "MIT"
