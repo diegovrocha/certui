@@ -9,10 +9,11 @@ import (
 )
 
 type Model struct {
-	lines  []string
-	err    string
-	scroll int
-	height int
+	lines    []string
+	err      string
+	scroll   int
+	height   int
+	showHelp bool
 }
 
 func NewView() tea.Model {
@@ -37,6 +38,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.height = msg.Height
 	case tea.KeyMsg:
+		if msg.String() == "?" {
+			m.showHelp = !m.showHelp
+			return m, nil
+		}
+		if m.showHelp {
+			if msg.String() == "esc" {
+				m.showHelp = false
+				return m, nil
+			}
+			return m, nil
+		}
 		switch msg.String() {
 		case "up", "k":
 			if m.scroll > 0 {
@@ -61,6 +73,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) View() string {
+	if m.showHelp {
+		return m.renderHelp()
+	}
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString(ui.Banner())
@@ -68,13 +83,13 @@ func (m *Model) View() string {
 
 	if m.err != "" {
 		b.WriteString(ui.ResultBox(false, "Error", m.err))
-		b.WriteString("\n  " + ui.DimStyle.Render("esc back  ctrl+c quit") + "\n")
+		b.WriteString("\n  " + ui.DimStyle.Render("? help  esc back  ctrl+c quit") + "\n")
 		return b.String()
 	}
 
 	if len(m.lines) == 0 {
 		b.WriteString("  " + ui.DimStyle.Render("No history yet. Perform an operation to see entries here.") + "\n")
-		b.WriteString("\n  " + ui.DimStyle.Render("esc back  ctrl+c quit") + "\n")
+		b.WriteString("\n  " + ui.DimStyle.Render("? help  esc back  ctrl+c quit") + "\n")
 		return b.String()
 	}
 
@@ -113,6 +128,22 @@ func (m *Model) View() string {
 		}
 	}
 
-	b.WriteString("\n  " + ui.DimStyle.Render(fmt.Sprintf("Showing last %d entries  ↑/↓ scroll  esc back  ctrl+c quit", total)) + "\n")
+	b.WriteString("\n  " + ui.DimStyle.Render(fmt.Sprintf("? help  Showing last %d entries  ↑/↓ scroll  esc back  ctrl+c quit", total)) + "\n")
 	return b.String()
+}
+
+func (m *Model) renderHelp() string {
+	sections := []ui.HelpSection{
+		{
+			Title: "Navigation",
+			Entries: []ui.HelpEntry{
+				{"↑/↓", "Scroll one line"},
+				{"PgUp/PgDn", "Page up / down"},
+				{"g", "Top"},
+				{"G", "Bottom"},
+			},
+		},
+		ui.CommonHelp(),
+	}
+	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── History ──") + "\n" + ui.RenderHelp("History — Help", sections)
 }

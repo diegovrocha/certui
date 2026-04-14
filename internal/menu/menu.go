@@ -44,6 +44,9 @@ type Model struct {
 	// Fuzzy filter state (main menu only)
 	filterMode bool
 	filterText string
+
+	// Contextual help overlay
+	showHelp bool
 }
 
 func New() Model {
@@ -112,6 +115,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+
+	// Help overlay toggle (only when not typing in filter mode)
+	if !m.filterMode {
+		if key == "?" {
+			m.showHelp = !m.showHelp
+			return m, nil
+		}
+		if m.showHelp {
+			if key == "esc" {
+				m.showHelp = false
+				return m, nil
+			}
+			// Swallow all other keys while help is open
+			return m, nil
+		}
+	}
 
 	if m.filterMode {
 		switch key {
@@ -348,6 +367,10 @@ func (m Model) View() string {
 		return m.sub.View()
 	}
 
+	if m.showHelp {
+		return m.renderHelp()
+	}
+
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString(ui.Banner())
@@ -402,9 +425,36 @@ func (m Model) View() string {
 		b.WriteString(fmt.Sprintf("  %s\n", ui.DimStyle.Render(fmt.Sprintf("Matches: %d", matches))))
 		b.WriteString("\n  " + ui.DimStyle.Render("↑/↓ navigate  enter select  backspace delete  esc clear  ctrl+c quit") + "\n")
 	} else {
-		b.WriteString("\n  " + ui.DimStyle.Render("↑/↓ navigate  enter select  / filter  q / ctrl+c quit") + "\n")
+		b.WriteString("\n  " + ui.DimStyle.Render("? help  ↑/↓ navigate  enter select  / filter  q / ctrl+c quit") + "\n")
 	}
 
+	return b.String()
+}
+
+func (m Model) renderHelp() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(ui.Banner())
+	b.WriteString("  " + ui.TitleStyle.Render("── Main Menu ──") + "\n")
+	sections := []ui.HelpSection{
+		{
+			Title: "Navigation",
+			Entries: []ui.HelpEntry{
+				{"↑/↓ or j/k", "Navigate menu items"},
+				{"enter", "Select highlighted item"},
+				{"q", "Quit certui"},
+			},
+		},
+		{
+			Title: "Search",
+			Entries: []ui.HelpEntry{
+				{"/", "Fuzzy filter menu items"},
+				{"esc", "Clear filter"},
+			},
+		},
+		ui.CommonHelp(),
+	}
+	b.WriteString(ui.RenderHelp("Main Menu — Help", sections))
 	return b.String()
 }
 

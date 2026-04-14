@@ -69,6 +69,7 @@ type Model struct {
 	scanned    bool
 	detail     tea.Model
 	logged     bool
+	showHelp   bool
 }
 
 type scanDoneMsg struct {
@@ -299,6 +300,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		// Help overlay on non-input steps (browse/table)
+		if m.step == stepBrowse || m.step == stepTable {
+			if msg.String() == "?" {
+				m.showHelp = !m.showHelp
+				return m, nil
+			}
+			if m.showHelp {
+				if msg.String() == "esc" {
+					m.showHelp = false
+					return m, nil
+				}
+				return m, nil
+			}
+		}
 		if m.step == stepDetail {
 			if msg.String() == "esc" {
 				m.step = stepTable
@@ -432,6 +447,9 @@ func (m *Model) View() string {
 	if m.step == stepDetail && m.detail != nil {
 		return m.detail.View()
 	}
+	if m.showHelp {
+		return m.renderHelp()
+	}
 
 	var b strings.Builder
 	b.WriteString("\n")
@@ -489,7 +507,7 @@ func (m *Model) View() string {
 		}
 
 		b.WriteString(fmt.Sprintf("\n  %s\n", ui.DimStyle.Render(fmt.Sprintf("%d folders", len(m.entries)))))
-		b.WriteString("\n  " + ui.DimStyle.Render("↑/↓ navigate  → enter folder  ← parent  enter open  s scan current  esc back  ctrl+c quit") + "\n")
+		b.WriteString("\n  " + ui.DimStyle.Render("? help  ↑/↓ navigate  → enter folder  ← parent  enter open  s scan current  esc back  ctrl+c quit") + "\n")
 		return b.String()
 	}
 
@@ -594,9 +612,37 @@ func (m *Model) View() string {
 		sortLabel = "expiry"
 	}
 	b.WriteString("\n  " + ui.DimStyle.Render(fmt.Sprintf(
-		"↑/↓ navigate  enter inspect  r/c/d sort  [sort=%s]  b browse folders  esc back  ctrl+c quit",
+		"? help  ↑/↓ navigate  enter inspect  r/c/d sort  [sort=%s]  b browse folders  esc back  ctrl+c quit",
 		sortLabel)) + "\n")
 	return b.String()
+}
+
+func (m *Model) renderHelp() string {
+	sections := []ui.HelpSection{
+		{
+			Title: "Folder browser",
+			Entries: []ui.HelpEntry{
+				{"↑/↓", "Navigate entries"},
+				{"→ / enter", "Open folder"},
+				{"←", "Parent folder"},
+				{"s", "Scan current folder"},
+				{"enter", "On \"[Scan this folder]\" starts scan"},
+			},
+		},
+		{
+			Title: "Results table",
+			Entries: []ui.HelpEntry{
+				{"↑/↓", "Navigate rows"},
+				{"enter", "Open cert details"},
+				{"r", "Sort by days remaining"},
+				{"c", "Sort by CN"},
+				{"d", "Sort by expiry date"},
+				{"b", "Back to folder browser"},
+			},
+		},
+		ui.CommonHelp(),
+	}
+	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── Batch Inspect ──") + "\n" + ui.RenderHelp("Batch Inspect — Help", sections)
 }
 
 func formatRow(r Row, fileW, cnW, expW, daysW int) string {

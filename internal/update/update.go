@@ -36,6 +36,7 @@ type Model struct {
 	success         bool
 	restartAt       time.Time // when to auto-restart; zero = disabled
 	restartCanceled bool
+	showHelp        bool
 }
 
 type restartTickMsg struct{}
@@ -131,6 +132,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case tea.KeyMsg:
+		// Help overlay (no text input in update, always allowed)
+		if msg.String() == "?" {
+			m.showHelp = !m.showHelp
+			return m, nil
+		}
+		if m.showHelp {
+			if msg.String() == "esc" {
+				m.showHelp = false
+				return m, nil
+			}
+			return m, nil
+		}
 		if msg.String() == "esc" {
 			if m.step == stepDone && !m.restartAt.IsZero() {
 				// Cancel auto-restart
@@ -361,6 +374,9 @@ func normalizeVer(v string) string {
 }
 
 func (m *Model) View() string {
+	if m.showHelp {
+		return m.renderHelp()
+	}
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString(ui.Banner())
@@ -440,11 +456,33 @@ func (m *Model) View() string {
 	}
 
 	if m.step == stepDone && m.success && !m.restartCanceled {
-		b.WriteString("\n  " + ui.DimStyle.Render("r / enter restart now  c cancel auto-restart  esc back  ctrl+c quit") + "\n")
+		b.WriteString("\n  " + ui.DimStyle.Render("? help  r / enter restart now  c cancel auto-restart  esc back  ctrl+c quit") + "\n")
 	} else {
-		b.WriteString("\n  " + ui.DimStyle.Render("esc back  enter confirm  ctrl+c quit") + "\n")
+		b.WriteString("\n  " + ui.DimStyle.Render("? help  esc back  enter confirm  ctrl+c quit") + "\n")
 	}
 	return b.String()
+}
+
+func (m *Model) renderHelp() string {
+	sections := []ui.HelpSection{
+		{
+			Title: "Confirm",
+			Entries: []ui.HelpEntry{
+				{"↑/↓", "Scroll changelog"},
+				{"enter", "Install update"},
+				{"esc", "Cancel"},
+			},
+		},
+		{
+			Title: "After success",
+			Entries: []ui.HelpEntry{
+				{"r / enter", "Restart now"},
+				{"c", "Cancel auto-restart"},
+			},
+		},
+		ui.CommonHelp(),
+	}
+	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── Update ──") + "\n" + ui.RenderHelp("Update — Help", sections)
 }
 
 // helpers to keep imports clean

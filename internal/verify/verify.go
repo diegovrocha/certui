@@ -33,6 +33,7 @@ type ChainModel struct {
 	optCur   int
 	result   string
 	success  bool
+	showHelp bool
 }
 
 func NewChain() tea.Model {
@@ -61,6 +62,20 @@ func (m *ChainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			history.KV("result", result))
 		return m, nil
 	case tea.KeyMsg:
+		// Help overlay on non-input steps
+		if m.step == chainAskIntermediate || m.step == chainAskRoot || m.step == chainResult {
+			if msg.String() == "?" {
+				m.showHelp = !m.showHelp
+				return m, nil
+			}
+			if m.showHelp {
+				if msg.String() == "esc" {
+					m.showHelp = false
+					return m, nil
+				}
+				return m, nil
+			}
+		}
 		if msg.String() == "esc" {
 			return m, nil
 		}
@@ -154,6 +169,9 @@ func (m *ChainModel) doVerify() tea.Cmd {
 }
 
 func (m *ChainModel) View() string {
+	if m.showHelp {
+		return m.renderHelp()
+	}
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString(ui.Banner())
@@ -195,8 +213,33 @@ func (m *ChainModel) View() string {
 		}
 	}
 
-	b.WriteString("\n  " + ui.DimStyle.Render("esc back  ↑/↓ navigate  enter confirm  ctrl+c quit") + "\n")
+	b.WriteString("\n  " + ui.DimStyle.Render("? help  esc back  ↑/↓ navigate  enter confirm  ctrl+c quit") + "\n")
 	return b.String()
+}
+
+func (m *ChainModel) renderHelp() string {
+	sections := []ui.HelpSection{
+		{
+			Title: "Flow",
+			Entries: []ui.HelpEntry{
+				{"1.", "Select end-entity certificate"},
+				{"2.", "Optionally select intermediate cert"},
+				{"3.", "Optionally select Root CA"},
+				{"4.", "Result"},
+			},
+		},
+		{
+			Title: "File picker",
+			Entries: []ui.HelpEntry{
+				{"↑/↓", "Navigate entries"},
+				{"→ / enter", "Open folder"},
+				{"←", "Parent folder"},
+				{"type", "Filter entries"},
+			},
+		},
+		ui.CommonHelp(),
+	}
+	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── Verify Certificate Chain ──") + "\n" + ui.RenderHelp("Verify Chain — Help", sections)
 }
 
 // -- Verify Cert + Key --------------------------------------------
@@ -216,6 +259,7 @@ type CertKeyModel struct {
 	keyFile  string
 	result   string
 	match    bool
+	showHelp bool
 }
 
 func NewCertKey() tea.Model {
@@ -243,6 +287,19 @@ func (m *CertKeyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			history.KV("result", result))
 		return m, nil
 	case tea.KeyMsg:
+		if m.step == ckResult {
+			if msg.String() == "?" {
+				m.showHelp = !m.showHelp
+				return m, nil
+			}
+			if m.showHelp {
+				if msg.String() == "esc" {
+					m.showHelp = false
+					return m, nil
+				}
+				return m, nil
+			}
+		}
 		if msg.String() == "esc" {
 			return m, nil
 		}
@@ -305,6 +362,9 @@ func (m *CertKeyModel) doCompare() tea.Cmd {
 }
 
 func (m *CertKeyModel) View() string {
+	if m.showHelp {
+		return m.renderHelp()
+	}
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString(ui.Banner())
@@ -323,8 +383,32 @@ func (m *CertKeyModel) View() string {
 		}
 	}
 
-	b.WriteString("\n  " + ui.DimStyle.Render("esc back  ↑/↓ navigate  enter confirm  ctrl+c quit") + "\n")
+	b.WriteString("\n  " + ui.DimStyle.Render("? help  esc back  ↑/↓ navigate  enter confirm  ctrl+c quit") + "\n")
 	return b.String()
+}
+
+func (m *CertKeyModel) renderHelp() string {
+	sections := []ui.HelpSection{
+		{
+			Title: "Flow",
+			Entries: []ui.HelpEntry{
+				{"1.", "Select certificate"},
+				{"2.", "Select private key"},
+				{"3.", "Result"},
+			},
+		},
+		{
+			Title: "File picker",
+			Entries: []ui.HelpEntry{
+				{"↑/↓", "Navigate entries"},
+				{"→ / enter", "Open folder"},
+				{"←", "Parent folder"},
+				{"type", "Filter entries"},
+			},
+		},
+		ui.CommonHelp(),
+	}
+	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── Verify Certificate + Key ──") + "\n" + ui.RenderHelp("Verify Cert+Key — Help", sections)
 }
 
 // -- Compare Certificates -----------------------------------------
@@ -387,6 +471,8 @@ type CompareHashModel struct {
 	summaries []certSummary
 	matrix    [][]bool // matrix[i][j] true when cert i fingerprint == cert j fingerprint
 	groups    [][]int  // groups of identical cert indices (by fingerprint)
+
+	showHelp bool
 }
 
 func NewCompareHash() tea.Model {
@@ -437,6 +523,20 @@ func (m *CompareHashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		// Help overlay: only on non-input steps
+		if m.step == cmpAskAnother || m.step == cmpResultStep || m.step == cmpDiffView || m.step == cmpMatrixView {
+			if msg.String() == "?" {
+				m.showHelp = !m.showHelp
+				return m, nil
+			}
+			if m.showHelp {
+				if msg.String() == "esc" {
+					m.showHelp = false
+					return m, nil
+				}
+				return m, nil
+			}
+		}
 		if msg.String() == "esc" {
 			if m.step == cmpDiffView {
 				m.step = cmpResultStep
@@ -787,6 +887,9 @@ func (m *CompareHashModel) doCompare() tea.Cmd {
 }
 
 func (m *CompareHashModel) View() string {
+	if m.showHelp {
+		return m.renderHelp()
+	}
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString(ui.Banner())
@@ -961,20 +1064,43 @@ func (m *CompareHashModel) View() string {
 	switch m.step {
 	case cmpResultStep:
 		if m.err == "" {
-			b.WriteString("\n  " + ui.DimStyle.Render("d diff view  esc back  ctrl+c quit") + "\n")
+			b.WriteString("\n  " + ui.DimStyle.Render("? help  d diff view  esc back  ctrl+c quit") + "\n")
 		} else {
-			b.WriteString("\n  " + ui.DimStyle.Render("esc back  ctrl+c quit") + "\n")
+			b.WriteString("\n  " + ui.DimStyle.Render("? help  esc back  ctrl+c quit") + "\n")
 		}
 	case cmpDiffView:
-		b.WriteString("\n  " + ui.DimStyle.Render("esc back  ctrl+c quit") + "\n")
+		b.WriteString("\n  " + ui.DimStyle.Render("? help  esc back  ctrl+c quit") + "\n")
 	case cmpAskAnother:
-		b.WriteString("\n  " + ui.DimStyle.Render("y add  n compare  ↑/↓ enter  esc back  ctrl+c quit") + "\n")
+		b.WriteString("\n  " + ui.DimStyle.Render("? help  y add  n compare  ↑/↓ enter  esc back  ctrl+c quit") + "\n")
 	case cmpMatrixView:
-		b.WriteString("\n  " + ui.DimStyle.Render("esc back  ctrl+c quit") + "\n")
+		b.WriteString("\n  " + ui.DimStyle.Render("? help  esc back  ctrl+c quit") + "\n")
 	default:
 		b.WriteString("\n  " + ui.DimStyle.Render("esc back  enter confirm  ctrl+c quit") + "\n")
 	}
 	return b.String()
+}
+
+func (m *CompareHashModel) renderHelp() string {
+	sections := []ui.HelpSection{
+		{
+			Title: "Flow",
+			Entries: []ui.HelpEntry{
+				{"1.", "Select certificate 1"},
+				{"2.", "Select certificate 2"},
+				{"3.", "Prompt: add another?"},
+				{"4.", "Result"},
+			},
+		},
+		{
+			Title: "Result",
+			Entries: []ui.HelpEntry{
+				{"d", "Diff view (2 certs)"},
+				{"matrix", "Auto shown for 3+ certs"},
+			},
+		},
+		ui.CommonHelp(),
+	}
+	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── Compare Certificates ──") + "\n" + ui.RenderHelp("Compare Certs — Help", sections)
 }
 
 // truncate returns s limited to n runes, adding an ellipsis if shortened.

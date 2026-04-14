@@ -66,6 +66,7 @@ type Model struct {
 	logged      bool
 	pendingInspect bool
 	embedded    bool // when true, skip banner + title header (used when embedded in other sub-screens)
+	showHelp    bool
 }
 
 func New() tea.Model {
@@ -146,6 +147,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.saveResult = msg.message
 		return m, nil
 	case tea.KeyMsg:
+		// Help overlay: only on non-input steps (stepResult when not saving)
+		if m.step == stepResult && !m.saving {
+			if msg.String() == "?" {
+				m.showHelp = !m.showHelp
+				return m, nil
+			}
+			if m.showHelp {
+				if msg.String() == "esc" {
+					m.showHelp = false
+					return m, nil
+				}
+				return m, nil
+			}
+		}
 		if msg.String() == "esc" {
 			if m.saving {
 				m.saving = false
@@ -371,6 +386,9 @@ func (m *Model) doInspect() tea.Cmd {
 }
 
 func (m *Model) View() string {
+	if m.showHelp {
+		return m.renderHelp()
+	}
 	var b strings.Builder
 	if !m.embedded {
 		b.WriteString("\n")
@@ -467,12 +485,41 @@ func (m *Model) View() string {
 		if m.saving {
 			b.WriteString("\n  " + ui.DimStyle.Render("enter save  esc cancel  ctrl+c quit") + "\n")
 		} else {
-			b.WriteString("\n  " + ui.DimStyle.Render("↑/↓ scroll  n inspect another  f toggle full view  y copy  s save  esc back  ctrl+c quit") + "\n")
+			b.WriteString("\n  " + ui.DimStyle.Render("? help  ↑/↓ scroll  n inspect another  f toggle full view  y copy  s save  esc back  ctrl+c quit") + "\n")
 		}
 	} else {
 		b.WriteString("\n  " + ui.DimStyle.Render("esc back  ↑/↓ navigate  enter confirm  ctrl+c quit") + "\n")
 	}
 	return b.String()
+}
+
+func (m *Model) renderHelp() string {
+	sections := []ui.HelpSection{
+		{
+			Title: "Result view",
+			Entries: []ui.HelpEntry{
+				{"f", "Toggle full view"},
+				{"y", "Copy to clipboard"},
+				{"s", "Save to file"},
+				{"n", "Inspect another certificate"},
+				{"↑/↓", "Scroll"},
+			},
+		},
+		{
+			Title: "File picker",
+			Entries: []ui.HelpEntry{
+				{"↑/↓", "Navigate entries"},
+				{"→ / enter", "Open folder"},
+				{"←", "Parent folder"},
+				{"type", "Filter entries"},
+			},
+		},
+		ui.CommonHelp(),
+	}
+	if m.embedded {
+		return ui.RenderHelp("Inspect — Help", sections)
+	}
+	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── Inspect Certificate ──") + "\n" + ui.RenderHelp("Inspect — Help", sections)
 }
 
 func formatCert(c CertInfo, full bool) string {

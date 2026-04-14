@@ -45,6 +45,7 @@ type Model struct {
 	result    string
 	success   bool
 	title     string
+	showHelp  bool
 }
 
 func newModel(ct convType, title string) Model {
@@ -80,6 +81,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		// Help overlay: only on non-input steps (done / running)
+		if m.step == stepDone || m.step == stepRunning {
+			if msg.String() == "?" {
+				m.showHelp = !m.showHelp
+				return m, nil
+			}
+			if m.showHelp {
+				if msg.String() == "esc" {
+					m.showHelp = false
+					return m, nil
+				}
+				return m, nil
+			}
+		}
 		if msg.String() == "esc" {
 			return m, nil
 		}
@@ -227,6 +242,9 @@ func (m Model) runConversion() tea.Cmd {
 }
 
 func (m Model) View() string {
+	if m.showHelp {
+		return m.renderHelp()
+	}
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString(ui.Banner())
@@ -260,8 +278,31 @@ func (m Model) View() string {
 		}
 	}
 
-	b.WriteString("\n  " + ui.DimStyle.Render("esc back  enter confirm  ctrl+c quit") + "\n")
+	b.WriteString("\n  " + ui.DimStyle.Render("? help  esc back  enter confirm  ctrl+c quit") + "\n")
 	return b.String()
+}
+
+func (m Model) renderHelp() string {
+	sections := []ui.HelpSection{
+		{
+			Title: "Steps",
+			Entries: []ui.HelpEntry{
+				{"enter", "Confirm current step"},
+				{"type", "Fill file / password / output fields"},
+			},
+		},
+		{
+			Title: "File picker",
+			Entries: []ui.HelpEntry{
+				{"↑/↓", "Navigate entries"},
+				{"→ / enter", "Open folder"},
+				{"←", "Parent folder"},
+				{"type", "Filter entries"},
+			},
+		},
+		ui.CommonHelp(),
+	}
+	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── "+m.title+" ──") + "\n" + ui.RenderHelp("Convert — Help", sections)
 }
 
 func detectLegacy() []string {

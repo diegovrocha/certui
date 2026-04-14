@@ -110,6 +110,8 @@ make uninstall  # remove from /usr/local/bin
 
 ## Navigation
 
+Press `?` on any screen to see a contextual help overlay listing the keys that screen understands.
+
 ### General
 | Key | Action |
 |-----|--------|
@@ -119,6 +121,7 @@ make uninstall  # remove from /usr/local/bin
 | `q` | Quit (main menu only) |
 | `Ctrl+C` | Quit from anywhere |
 | `/` | Fuzzy search filter in main menu |
+| `?` | Toggle contextual help |
 
 ### File picker
 | Key | Action |

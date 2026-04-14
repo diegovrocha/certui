@@ -78,6 +78,7 @@ type Model struct {
 	city    string
 	result  string
 	success bool
+	showHelp bool
 }
 
 func NewSelfSigned() tea.Model {
@@ -91,6 +92,20 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Help overlay: enable on choice steps and the done step
+		if isChoiceStep(m.step) || m.step == genDone || m.step == genRunning {
+			if msg.String() == "?" {
+				m.showHelp = !m.showHelp
+				return m, nil
+			}
+			if m.showHelp {
+				if msg.String() == "esc" {
+					m.showHelp = false
+					return m, nil
+				}
+				return m, nil
+			}
+		}
 		switch msg.String() {
 		case "esc":
 			return m, nil
@@ -473,6 +488,9 @@ func isIPv6Hex(s string) bool {
 }
 
 func (m *Model) View() string {
+	if m.showHelp {
+		return m.renderHelp()
+	}
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString(ui.Banner())
@@ -591,8 +609,29 @@ func (m *Model) View() string {
 		}
 	}
 
-	b.WriteString("\n  " + ui.DimStyle.Render("ENTER confirm/skip  esc back  ctrl+c quit") + "\n")
+	b.WriteString("\n  " + ui.DimStyle.Render("? help  ENTER confirm/skip  esc back  ctrl+c quit") + "\n")
 	return b.String()
+}
+
+func (m *Model) renderHelp() string {
+	sections := []ui.HelpSection{
+		{
+			Title: "Steps",
+			Entries: []ui.HelpEntry{
+				{"enter", "Confirm current step"},
+				{"enter (empty)", "Skip optional fields"},
+				{"esc", "Back"},
+			},
+		},
+		{
+			Title: "Preset shortcuts",
+			Entries: []ui.HelpEntry{
+				{"↑/↓", "Choose preset / option"},
+			},
+		},
+		ui.CommonHelp(),
+	}
+	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── Generate Self-Signed Certificate ──") + "\n" + ui.RenderHelp("Generate Self-Signed — Help", sections)
 }
 
 func (m *Model) viewSummary(b *strings.Builder) {

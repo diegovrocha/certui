@@ -41,6 +41,7 @@ type Model struct {
 	logged     bool
 	height     int
 	width      int
+	showHelp   bool
 }
 
 // New returns a Bubble Tea model for downloading remote certificates.
@@ -122,6 +123,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Help overlay: only on stepResult when not saving
+		if m.step == stepResult && !m.saving {
+			if msg.String() == "?" {
+				m.showHelp = !m.showHelp
+				return m, nil
+			}
+			if m.showHelp {
+				if msg.String() == "esc" {
+					m.showHelp = false
+					return m, nil
+				}
+				return m, nil
+			}
+		}
 		switch m.step {
 		case stepHost:
 			switch msg.String() {
@@ -338,6 +353,9 @@ func (m *Model) doSave(name string) tea.Cmd {
 }
 
 func (m *Model) View() string {
+	if m.showHelp {
+		return m.renderHelp()
+	}
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString(ui.Banner())
@@ -390,7 +408,30 @@ func (m *Model) View() string {
 			}
 			b.WriteString("\n")
 		}
-		b.WriteString("\n  " + ui.DimStyle.Render("s save chain  esc back  ctrl+c quit") + "\n")
+		b.WriteString("\n  " + ui.DimStyle.Render("? help  s save chain  esc back  ctrl+c quit") + "\n")
 	}
 	return b.String()
+}
+
+func (m *Model) renderHelp() string {
+	sections := []ui.HelpSection{
+		{
+			Title: "Input",
+			Entries: []ui.HelpEntry{
+				{"type", "Enter host[:port]"},
+				{"enter", "Fetch chain"},
+			},
+		},
+		{
+			Title: "Result",
+			Entries: []ui.HelpEntry{
+				{"s", "Save chain to file"},
+				{"f", "Toggle full view (inspect)"},
+				{"y", "Copy to clipboard (inspect)"},
+				{"↑/↓", "Scroll (inspect)"},
+			},
+		},
+		ui.CommonHelp(),
+	}
+	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── Download Certificate from URL ──") + "\n" + ui.RenderHelp("Remote Download — Help", sections)
 }
