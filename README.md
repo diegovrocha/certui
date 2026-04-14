@@ -1,16 +1,16 @@
-# certool
+# certui
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/diegovrocha/certool)](https://github.com/diegovrocha/certool/releases)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/diegovrocha/certool/pulls)
-[![Go Report Card](https://goreportcard.com/badge/github.com/diegovrocha/certool)](https://goreportcard.com/report/github.com/diegovrocha/certool)
+[![Release](https://img.shields.io/github/v/release/diegovrocha/certui)](https://github.com/diegovrocha/certui/releases)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/diegovrocha/certui/pulls)
+[![Go Report Card](https://goreportcard.com/badge/github.com/diegovrocha/certui)](https://goreportcard.com/report/github.com/diegovrocha/certui)
 
 ```
-                _              _
-  ___ ___ _ __| |_ ___   ___ | |
- / __/ _ \ '__| __/ _ \ / _ \| |
-| (_|  __/ |  | || (_) | (_) | |
- \___\___|_|   \__\___/ \___/|_|
+                _        _
+  ___ ___ _ __| |_ _   _(_)
+ / __/ _ \ '__| __| | | | |
+| (_|  __/ |  | |_| |_| | |
+ \___\___|_|   \__|\__,_|_|
 ```
 
 Digital certificate conversion, validation and generation TUI.
@@ -28,26 +28,26 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea). Single bina
 ### Quick install (macOS/Linux)
 
 ```bash
-curl -sSLf https://raw.githubusercontent.com/diegovrocha/certool/main/install.sh | sh
+curl -sSLf https://raw.githubusercontent.com/diegovrocha/certui/main/install.sh | sh
 ```
 
 ### Manual download
 
-Download the binary for your platform from [Releases](https://github.com/diegovrocha/certool/releases):
+Download the binary for your platform from [Releases](https://github.com/diegovrocha/certui/releases):
 
 | Platform | File |
 |----------|------|
-| macOS (Apple Silicon) | `certool_darwin_arm64.tar.gz` |
-| macOS (Intel) | `certool_darwin_amd64.tar.gz` |
-| Linux (amd64) | `certool_linux_amd64.tar.gz` |
-| Linux (arm64) | `certool_linux_arm64.tar.gz` |
-| Windows (amd64) | `certool_windows_amd64.zip` |
+| macOS (Apple Silicon) | `certui_darwin_arm64.tar.gz` |
+| macOS (Intel) | `certui_darwin_amd64.tar.gz` |
+| Linux (amd64) | `certui_linux_amd64.tar.gz` |
+| Linux (arm64) | `certui_linux_arm64.tar.gz` |
+| Windows (amd64) | `certui_windows_amd64.zip` |
 
 Extract and move to your PATH:
 
 ```bash
-tar -xzf certool_<os>_<arch>.tar.gz
-sudo mv certool /usr/local/bin/
+tar -xzf certui_<os>_<arch>.tar.gz
+sudo mv certui /usr/local/bin/
 ```
 
 ### From source
@@ -55,8 +55,8 @@ sudo mv certool /usr/local/bin/
 Requires [Go 1.22+](https://go.dev/dl/):
 
 ```bash
-git clone https://github.com/diegovrocha/certool.git
-cd certool
+git clone https://github.com/diegovrocha/certui.git
+cd certui
 make install    # builds and copies to /usr/local/bin
 ```
 
@@ -104,10 +104,10 @@ make uninstall  # remove from /usr/local/bin
 
 ## Update
 
-certool checks for updates automatically on startup via the GitHub releases API. If a new version is available, it shows:
+certui checks for updates automatically on startup via the GitHub releases API. If a new version is available, it shows:
 
 ```
-Update v1.1.0 available → github.com/diegovrocha/certool/releases
+Update v1.1.0 available → github.com/diegovrocha/certui/releases
 ```
 
 ## License

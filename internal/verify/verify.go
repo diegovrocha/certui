@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/diegovrocha/certool/internal/ui"
+	"github.com/diegovrocha/certui/internal/ui"
 )
 
 // -- Verify Chain -------------------------------------------------
@@ -451,7 +451,7 @@ type compareResult struct {
 }
 
 func extractPFXtoPEM(file, password string) (pemPath string, errMsg string) {
-	tmp := fmt.Sprintf("/tmp/certool_cmp_%d.pem", len(file))
+	tmp := fmt.Sprintf("/tmp/certui_cmp_%d.pem", len(file))
 	legacy := detectLegacy2()
 	args := append([]string{"pkcs12", "-in", file, "-out", tmp,
 		"-passin", "pass:" + password, "-nokeys", "-clcerts"}, legacy...)
@@ -528,10 +528,10 @@ func (m *CompareHashModel) doCompare() tea.Cmd {
 		}
 
 		// Cleanup temp files
-		if strings.HasPrefix(m.pem1, "/tmp/certool_cmp_") {
+		if strings.HasPrefix(m.pem1, "/tmp/certui_cmp_") {
 			exec.Command("rm", "-f", m.pem1).Run()
 		}
-		if strings.HasPrefix(m.pem2, "/tmp/certool_cmp_") {
+		if strings.HasPrefix(m.pem2, "/tmp/certui_cmp_") {
 			exec.Command("rm", "-f", m.pem2).Run()
 		}
 

@@ -1,4 +1,4 @@
-module github.com/diegovrocha/certool
+module github.com/diegovrocha/certui
 
 go 1.22
 

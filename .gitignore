@@ -1,5 +1,5 @@
 .DS_Store
-/certool
+/certui
 dist/
 *.pfx
 *.p12

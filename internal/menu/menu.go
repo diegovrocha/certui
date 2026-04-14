@@ -7,11 +7,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mattn/go-runewidth"
-	"github.com/diegovrocha/certool/internal/convert"
-	"github.com/diegovrocha/certool/internal/generate"
-	"github.com/diegovrocha/certool/internal/inspect"
-	"github.com/diegovrocha/certool/internal/ui"
-	"github.com/diegovrocha/certool/internal/verify"
+	"github.com/diegovrocha/certui/internal/convert"
+	"github.com/diegovrocha/certui/internal/generate"
+	"github.com/diegovrocha/certui/internal/inspect"
+	"github.com/diegovrocha/certui/internal/ui"
+	"github.com/diegovrocha/certui/internal/verify"
 )
 
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)

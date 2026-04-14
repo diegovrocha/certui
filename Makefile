@@ -1,18 +1,18 @@
 PREFIX ?= /usr/local
-BINARY = certool
+BINARY = certui
 
 build:
-	go build -o $(BINARY) ./cmd/certool
+	go build -o $(BINARY) ./cmd/certui
 
 install: build
 	@mkdir -p $(PREFIX)/bin
 	@cp $(BINARY) $(PREFIX)/bin/$(BINARY)
 	@chmod +x $(PREFIX)/bin/$(BINARY)
-	@echo "✔ certool instalado em $(PREFIX)/bin/$(BINARY)"
+	@echo "✔ certui instalado em $(PREFIX)/bin/$(BINARY)"
 
 uninstall:
 	@rm -f $(PREFIX)/bin/$(BINARY)
-	@echo "✔ certool removido"
+	@echo "✔ certui removido"
 
 run: build
 	./$(BINARY)

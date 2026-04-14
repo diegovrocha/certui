@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/diegovrocha/certool/internal/ui"
+	"github.com/diegovrocha/certui/internal/ui"
 )
 
 type genStep int

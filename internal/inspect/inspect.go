@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/diegovrocha/certool/internal/ui"
+	"github.com/diegovrocha/certui/internal/ui"
 )
 
 type step int
@@ -152,7 +152,7 @@ func (m *Model) doInspect() tea.Cmd {
 
 		switch ext {
 		case "pfx", "p12":
-			tmp := "/tmp/certool_inspect.pem"
+			tmp := "/tmp/certui_inspect.pem"
 			args := []string{"pkcs12", "-in", m.infile, "-out", tmp,
 				"-passin", "pass:" + m.password, "-nokeys", "-clcerts"}
 			legacy := detectLegacy()
@@ -163,7 +163,7 @@ func (m *Model) doInspect() tea.Cmd {
 			pemFile = tmp
 		case "cer", "der":
 			if !hasPEMMarker(m.infile) {
-				tmp := "/tmp/certool_inspect_der.pem"
+				tmp := "/tmp/certui_inspect_der.pem"
 				if err := runCmd("openssl", "x509", "-in", m.infile, "-inform", "DER",
 					"-out", tmp, "-outform", "PEM"); err != nil {
 					return inspectResult{err: "Unrecognized format"}
@@ -402,7 +402,7 @@ func splitPEM(file string) []string {
 		}
 		end += start + len("-----END CERTIFICATE-----")
 
-		tmp := fmt.Sprintf("/tmp/certool_cert_%d.pem", len(certs))
+		tmp := fmt.Sprintf("/tmp/certui_cert_%d.pem", len(certs))
 		if err := exec.Command("bash", "-c",
 			fmt.Sprintf("cat > %s << 'CERTEOF'\n%s\nCERTEOF", tmp, content[start:end])).Run(); err != nil {
 			continue

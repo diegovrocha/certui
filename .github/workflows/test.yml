@@ -23,4 +23,4 @@ jobs:
         run: go test ./... -count=1 -v
 
       - name: Build
-        run: go build -o certool ./cmd/certool
+        run: go build -o certui ./cmd/certui

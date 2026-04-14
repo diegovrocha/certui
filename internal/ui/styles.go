@@ -55,11 +55,11 @@ const Version = "1.0.0"
 
 func Banner() string {
 	logo := TitleStyle.Render(
-		"                _              _\n"+
-			"  ___ ___ _ __| |_ ___   ___ | |\n"+
-			" / __/ _ \\ '__| __/ _ \\ / _ \\| |\n"+
-			"| (_|  __/ |  | || (_) | (_) | |\n"+
-			" \\___\\___|_|   \\__\\___/ \\___/|_|") +
+		"                _        _\n"+
+			"  ___ ___ _ __| |_ _   _(_)\n"+
+			" / __/ _ \\ '__| __| | | | |\n"+
+			"| (_|  __/ |  | |_| |_| | |\n"+
+			" \\___\\___|_|   \\__|\\__,_|_|") +
 		DimStyle.Render("  v"+Version)
 	subtitle := SubtitleStyle.Render("  Digital certificate conversion, validation and generation")
 	return logo + "\n" + subtitle + "\n"

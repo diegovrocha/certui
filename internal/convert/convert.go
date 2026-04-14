@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/diegovrocha/certool/internal/ui"
+	"github.com/diegovrocha/certui/internal/ui"
 )
 
 type step int
@@ -182,7 +182,7 @@ func (m Model) runConversion() tea.Cmd {
 			return convResult{true, "Format: PEM (text)"}
 
 		case typePfxCerDer:
-			tmp := "/tmp/certool_tmp.pem"
+			tmp := "/tmp/certui_tmp.pem"
 			args := append([]string{"pkcs12", "-in", m.infile, "-out", tmp,
 				"-passin", "pass:" + m.password, "-nokeys", "-clcerts"}, legacy...)
 			if err := runOpenSSL(args...); err != nil {
@@ -202,7 +202,7 @@ func (m Model) runConversion() tea.Cmd {
 			return convResult{true, "Permission: 600"}
 
 		case typePfxRepack:
-			tmp := "/tmp/certool_repack.pem"
+			tmp := "/tmp/certui_repack.pem"
 			args := append([]string{"pkcs12", "-in", m.infile, "-out", tmp,
 				"-passin", "pass:" + m.password, "-nodes"}, legacy...)
 			if err := runOpenSSL(args...); err != nil {

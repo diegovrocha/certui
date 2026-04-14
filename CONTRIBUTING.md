@@ -1,14 +1,14 @@
-# Contributing to certool
+# Contributing to certui
 
 Thanks for your interest in contributing! All contributions are welcome — bug fixes, new features, documentation improvements, tests, or ideas.
 
 ## Quick start
 
 ```bash
-git clone https://github.com/diegovrocha/certool.git
-cd certool
-go build -o certool ./cmd/certool
-./certool
+git clone https://github.com/diegovrocha/certui.git
+cd certui
+go build -o certui ./cmd/certui
+./certui
 ```
 
 ## Requirements
@@ -33,7 +33,7 @@ go build -o certool ./cmd/certool
 4. Build locally and try it out:
    ```bash
    make build
-   ./certool
+   ./certui
    ```
 
 5. Commit with a clear message:
@@ -58,8 +58,8 @@ go build -o certool ./cmd/certool
 ## Project structure
 
 ```
-certool/
-├── cmd/certool/main.go          # entrypoint
+certui/
+├── cmd/certui/main.go           # entrypoint
 ├── internal/
 │   ├── menu/                    # main menu
 │   ├── convert/                 # PFX conversions
@@ -81,10 +81,10 @@ certool/
 
 ## Reporting bugs
 
-Open an issue at https://github.com/diegovrocha/certool/issues with:
+Open an issue at https://github.com/diegovrocha/certui/issues with:
 
 - OS and terminal (macOS/Linux, iTerm/Alacritty/etc.)
-- `certool` version (shown in banner)
+- `certui` version (shown in banner)
 - `openssl version` output
 - Steps to reproduce
 - Expected vs actual behavior

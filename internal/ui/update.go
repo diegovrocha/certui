@@ -10,7 +10,7 @@ import (
 
 const (
 	repoOwner = "diegovrocha"
-	repoName  = "certool"
+	repoName  = "certui"
 )
 
 type githubRelease struct {
