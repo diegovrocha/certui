@@ -5,12 +5,32 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/diegovrocha/certui/internal/history"
 	"github.com/diegovrocha/certui/internal/ui"
 )
+
+// certHostnameSuffix returns a sanitized hostname token for filename presets.
+func certHostnameSuffix() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		return "host"
+	}
+	host = strings.TrimSuffix(host, ".local")
+	host = strings.TrimSuffix(host, ".lan")
+	var b strings.Builder
+	for _, r := range host {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	return strings.ToLower(b.String())
+}
 
 type genStep int
 
@@ -19,11 +39,12 @@ const (
 	genAlgo
 	genBits
 	genCurve
-	genOutCert
-	genOutKey
 	genCN
 	genSANPreset
 	genSANCustom
+	genOutPreset
+	genOutCert
+	genOutKey
 	genOrg
 	genOU
 	genCountry
@@ -165,7 +186,8 @@ func isInputStep(s genStep) bool {
 }
 
 func isChoiceStep(s genStep) bool {
-	return s == genDays || s == genAlgo || s == genBits || s == genCurve || s == genSANPreset
+	return s == genDays || s == genAlgo || s == genBits || s == genCurve ||
+		s == genSANPreset || s == genOutPreset
 }
 
 func choiceMax(s genStep) int {
@@ -180,6 +202,8 @@ func choiceMax(s genStep) int {
 		return len(curveOptions) - 1
 	case genSANPreset:
 		return len(sanPresetLabels) - 1
+	case genOutPreset:
+		return 3 // 4 options: default, date, hostname, custom
 	}
 	return 0
 }
@@ -220,32 +244,11 @@ func (m *Model) advance() (tea.Model, tea.Cmd) {
 	case genBits:
 		bits := []string{"2048", "4096"}
 		m.bits = bits[m.optCur]
-		m.step = genOutCert
-		return m, m.newInput("certificate.crt")
+		m.step = genCN
+		return m, m.newInput("mysite.local")
 
 	case genCurve:
 		m.curve = curveOptions[m.optCur].name
-		m.step = genOutCert
-		return m, m.newInput("certificate.crt")
-
-	case genOutCert:
-		m.outCert = m.input.Value()
-		if m.outCert == "" {
-			m.outCert = "certificate.crt"
-		}
-		m.step = genOutKey
-		// Suggest .key based on the cert name
-		base := strings.TrimSuffix(m.outCert, ".crt")
-		base = strings.TrimSuffix(base, ".pem")
-		return m, m.newInput(base + ".key")
-
-	case genOutKey:
-		m.outKey = m.input.Value()
-		if m.outKey == "" {
-			base := strings.TrimSuffix(m.outCert, ".crt")
-			base = strings.TrimSuffix(base, ".pem")
-			m.outKey = base + ".key"
-		}
 		m.step = genCN
 		return m, m.newInput("mysite.local")
 
@@ -264,8 +267,9 @@ func (m *Model) advance() (tea.Model, tea.Cmd) {
 		case 0: // None
 			m.sans = nil
 			m.sanDesc = "none"
-			m.step = genOrg
-			return m, m.newInput("ENTER to skip")
+			m.step = genOutPreset
+			m.optCur = 0
+			return m, nil
 		case 1: // Web
 			m.sans = []string{
 				"DNS:" + m.cn,
@@ -274,16 +278,18 @@ func (m *Model) advance() (tea.Model, tea.Cmd) {
 				"IP:::1",
 			}
 			m.sanDesc = "web"
-			m.step = genOrg
-			return m, m.newInput("ENTER to skip")
+			m.step = genOutPreset
+			m.optCur = 0
+			return m, nil
 		case 2: // Wildcard
 			m.sans = []string{
 				"DNS:" + m.cn,
 				"DNS:*." + m.cn,
 			}
 			m.sanDesc = "wildcard"
-			m.step = genOrg
-			return m, m.newInput("ENTER to skip")
+			m.step = genOutPreset
+			m.optCur = 0
+			return m, nil
 		case 3: // Wildcard + Web
 			m.sans = []string{
 				"DNS:" + m.cn,
@@ -293,8 +299,9 @@ func (m *Model) advance() (tea.Model, tea.Cmd) {
 				"IP:::1",
 			}
 			m.sanDesc = "wildcard+web"
-			m.step = genOrg
-			return m, m.newInput("ENTER to skip")
+			m.step = genOutPreset
+			m.optCur = 0
+			return m, nil
 		case 4: // Custom
 			m.step = genSANCustom
 			return m, m.newInput("DNS:a.com,DNS:*.a.com,IP:1.2.3.4,email:x@y")
@@ -308,6 +315,53 @@ func (m *Model) advance() (tea.Model, tea.Cmd) {
 			m.sanDesc = fmt.Sprintf("custom (%d)", len(m.sans))
 		} else {
 			m.sanDesc = "none"
+		}
+		m.step = genOutPreset
+		m.optCur = 0
+		return m, nil
+
+	case genOutPreset:
+		base := sanitize(m.cn)
+		switch m.optCur {
+		case 0: // Default: <CN>.crt + <CN>.key
+			m.outCert = base + ".crt"
+			m.outKey = base + ".key"
+			m.step = genOrg
+			return m, m.newInput("ENTER to skip")
+		case 1: // With date
+			date := time.Now().Format("2006-01-02")
+			m.outCert = base + "_" + date + ".crt"
+			m.outKey = base + "_" + date + ".key"
+			m.step = genOrg
+			return m, m.newInput("ENTER to skip")
+		case 2: // With hostname
+			suffix := certHostnameSuffix()
+			m.outCert = base + "_" + suffix + ".crt"
+			m.outKey = base + "_" + suffix + ".key"
+			m.step = genOrg
+			return m, m.newInput("ENTER to skip")
+		case 3: // Custom
+			m.step = genOutCert
+			return m, m.newInput(base + ".crt")
+		}
+		return m, nil
+
+	case genOutCert:
+		m.outCert = m.input.Value()
+		if m.outCert == "" {
+			m.outCert = sanitize(m.cn) + ".crt"
+		}
+		m.step = genOutKey
+		base := strings.TrimSuffix(m.outCert, ".crt")
+		base = strings.TrimSuffix(base, ".pem")
+		return m, m.newInput(base + ".key")
+
+	case genOutKey:
+		m.outKey = m.input.Value()
+		if m.outKey == "" {
+			base := strings.TrimSuffix(m.outCert, ".crt")
+			base = strings.TrimSuffix(base, ".pem")
+			m.outKey = base + ".key"
 		}
 		m.step = genOrg
 		return m, m.newInput("ENTER to skip")
@@ -548,6 +602,34 @@ func (m *Model) View() string {
 			b.WriteString(fmt.Sprintf("  %s%s\n", cursor, style.Render(c.label)))
 		}
 
+	case genOutPreset:
+		base := sanitize(m.cn)
+		date := time.Now().Format("2006-01-02")
+		host := certHostnameSuffix()
+		exists := func(name string) string {
+			if _, err := os.Stat(name); err == nil {
+				return "  " + ui.WarnStyle.Render("[exists]")
+			}
+			return ""
+		}
+		labels := []string{
+			fmt.Sprintf("Default         %s.crt + %s.key%s", base, base, exists(base+".crt")),
+			fmt.Sprintf("With date       %s_%s.crt + .key%s", base, date, exists(base+"_"+date+".crt")),
+			fmt.Sprintf("With hostname   %s_%s.crt + .key%s", base, host, exists(base+"_"+host+".crt")),
+			"Custom          (type your own)",
+		}
+		b.WriteString("  Output file paths:\n")
+		b.WriteString("  " + ui.DimStyle.Render("Choose a preset or type custom paths.") + "\n\n")
+		for i, label := range labels {
+			cursor := "  "
+			style := ui.InactiveStyle
+			if i == m.optCur {
+				cursor = ui.ActiveStyle.Render("➤ ")
+				style = ui.ActiveStyle
+			}
+			b.WriteString(fmt.Sprintf("  %s%s\n", cursor, style.Render(label)))
+		}
+
 	case genOutCert:
 		b.WriteString("  Certificate file:\n\n")
 		b.WriteString("  " + m.input.View() + "\n")
@@ -651,10 +733,10 @@ func (m *Model) viewSummary(b *strings.Builder) {
 	fields := []field{
 		{"Days", m.days, genDays},
 		{"Algo", algoVal, genAlgo},
-		{"Cert", m.outCert, genOutCert},
-		{"Key", m.outKey, genOutKey},
 		{"CN", m.cn, genCN},
 		{"SANs", m.sanDesc, genSANPreset},
+		{"Cert", m.outCert, genOutPreset},
+		{"Key", m.outKey, genOutPreset},
 		{"O", m.org, genOrg},
 		{"OU", m.ou, genOU},
 		{"C", m.country, genCountry},
