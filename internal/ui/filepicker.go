@@ -81,14 +81,16 @@ func (fp *FilePicker) loadDir() {
 	var files []fileEntry
 
 	for _, e := range dirEntries {
-		if strings.HasPrefix(e.Name(), ".") {
+		// Skip only noisy hidden dirs; show user-relevant dot-dirs.
+		switch e.Name() {
+		case ".git", ".DS_Store", ".Trash", ".cache":
 			continue
 		}
 		if e.IsDir() {
-			// Only show dirs that contain matching files (check 2 levels deep)
-			if fp.dirHasFiles(filepath.Join(fp.cwd, e.Name()), 2) {
-				dirs = append(dirs, fileEntry{name: e.Name() + "/", isDir: true, path: filepath.Join(fp.cwd, e.Name())})
-			}
+			// Show ALL directories so the user can freely navigate.
+			// Hiding dirs without certs led to empty pickers in project folders
+			// where certs may live deeper than 2 levels.
+			dirs = append(dirs, fileEntry{name: e.Name() + "/", isDir: true, path: filepath.Join(fp.cwd, e.Name())})
 		} else {
 			ext := strings.ToLower(filepath.Ext(e.Name()))
 			for _, match := range fp.exts {

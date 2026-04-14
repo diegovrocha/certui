@@ -157,7 +157,9 @@ func TestFilePickerDirNavigation(t *testing.T) {
 	}
 }
 
-func TestFilePickerHidesEmptyDirs(t *testing.T) {
+func TestFilePickerShowsAllDirs(t *testing.T) {
+	// Show all directories so the user can navigate freely; certs may live
+	// deeper than the previous 2-level scan would catch.
 	dir := t.TempDir()
 	os.Mkdir(filepath.Join(dir, "empty"), 0755)
 	os.Mkdir(filepath.Join(dir, "hascert"), 0755)
@@ -167,9 +169,19 @@ func TestFilePickerHidesEmptyDirs(t *testing.T) {
 	fp.cwd = dir
 	fp.loadDir()
 
+	var foundEmpty, foundHasCert bool
 	for _, e := range fp.entries {
 		if e.isDir && e.name == "empty/" {
-			t.Error("Should not list empty directory")
+			foundEmpty = true
 		}
+		if e.isDir && e.name == "hascert/" {
+			foundHasCert = true
+		}
+	}
+	if !foundEmpty {
+		t.Error("empty directory should be listed for free navigation")
+	}
+	if !foundHasCert {
+		t.Error("directory with matching files should be listed")
 	}
 }
