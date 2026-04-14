@@ -32,49 +32,22 @@ fail()  { echo "${RED}✖${RESET} $*" >&2; exit 1; }
 
 usage() {
     cat <<EOF
-Usage: $0 <patch|minor|major|auto|X.Y.Z>
+Usage: $0 <patch|minor|major|X.Y.Z>
 
   patch   bump the patch version (bug fixes)
   minor   bump the minor version (new features, backwards compatible)
   major   bump the major version (breaking changes)
-  auto    detect bump from commit messages (feat/fix/BREAKING CHANGE)
   X.Y.Z   set an explicit version
 
 Examples:
   $0 patch
   $0 minor
-  $0 auto
   $0 1.5.0
 EOF
     exit 1
 }
 
 [[ $# -eq 1 ]] || usage
-
-# detect_bump: decide patch/minor/major based on commits since last tag.
-# Rules (conventional-commits-ish):
-#   - any "BREAKING CHANGE" in body, or "feat!:", "fix!:"          → major
-#   - any "feat:" or "feat(...)"                                   → minor
-#   - any "fix:" or "fix(...)" or other kind                       → patch
-detect_bump() {
-    local from_tag="$1"
-    local log
-    log=$(git --no-pager log "$from_tag"..HEAD --pretty=format:'%s%n%b' 2>/dev/null || true)
-
-    if [[ -z "$log" ]]; then
-        echo "none"
-        return
-    fi
-    if grep -qE '(BREAKING CHANGE|^(feat|fix)(\([^)]*\))?!:)' <<< "$log"; then
-        echo "major"
-        return
-    fi
-    if grep -qE '^feat(\([^)]*\))?:' <<< "$log"; then
-        echo "minor"
-        return
-    fi
-    echo "patch"
-}
 
 cd "$(dirname "$0")/.."
 
@@ -95,15 +68,6 @@ last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
 last_ver=${last_tag#v}
 
 bump_kind="$1"
-
-# Auto-detect
-if [[ "$bump_kind" == "auto" ]]; then
-    bump_kind=$(detect_bump "$last_tag")
-    if [[ "$bump_kind" == "none" ]]; then
-        fail "No commits since $last_tag — nothing to release."
-    fi
-    info "Detected bump kind from commit history: ${BOLD}$bump_kind${RESET}"
-fi
 
 if [[ "$bump_kind" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     new_ver="$bump_kind"

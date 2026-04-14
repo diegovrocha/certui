@@ -71,7 +71,6 @@ make check           # vet + test
 make uninstall       # remove from /usr/local/bin
 
 # Release (maintainers only)
-make release-auto    # detect bump from commit messages (recommended)
 make release-patch   # bug fix: v1.3.0 → v1.3.1
 make release-minor   # new feature: v1.3.0 → v1.4.0
 make release-major   # breaking change: v1.3.0 → v2.0.0
@@ -79,14 +78,6 @@ make release VERSION=1.5.0  # explicit version
 ```
 
 Each `release-*` target runs `go vet`, tests, tags and pushes. GitHub Actions then builds and publishes the release automatically.
-
-`release-auto` inspects the commit messages since the last tag and picks the bump kind using [conventional commits](https://www.conventionalcommits.org/):
-
-| Commit prefix | Bump |
-|---|---|
-| `feat!:`, `fix!:`, or `BREAKING CHANGE:` in body | **major** |
-| `feat:`, `feat(scope):` | **minor** |
-| anything else (`fix:`, `docs:`, `refactor:`, etc.) | **patch** |
 
 ## Features
 

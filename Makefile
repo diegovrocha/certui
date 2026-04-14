@@ -42,15 +42,10 @@ release-minor:
 release-major:
 	@./scripts/bump.sh major
 
-# Auto-detects patch/minor/major from conventional commit messages
-# since the last tag. Use this after a coding session.
-release-auto:
-	@./scripts/bump.sh auto
-
 # Usage: make release VERSION=1.5.0
 release:
 	@[ -n "$(VERSION)" ] || { echo "Usage: make release VERSION=X.Y.Z"; exit 1; }
 	@./scripts/bump.sh $(VERSION)
 
 .PHONY: build install uninstall run clean test vet check \
-	release release-patch release-minor release-major release-auto
+	release release-patch release-minor release-major
