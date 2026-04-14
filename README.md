@@ -64,10 +64,20 @@ make install    # builds and copies to /usr/local/bin
 Other make targets:
 
 ```bash
-make build      # build binary locally
-make test       # run Go tests across ui/menu/inspect packages
-make uninstall  # remove from /usr/local/bin
+make build           # build binary locally (with version injected via ldflags)
+make test            # run Go tests
+make vet             # run go vet
+make check           # vet + test
+make uninstall       # remove from /usr/local/bin
+
+# Release (maintainers only)
+make release-patch   # bug fix: v1.3.0 → v1.3.1
+make release-minor   # new feature: v1.3.0 → v1.4.0
+make release-major   # breaking change: v1.3.0 → v2.0.0
+make release VERSION=1.5.0  # explicit version
 ```
+
+Each `release-*` target runs `go vet`, tests, tags and pushes. GitHub Actions then builds and publishes the release automatically.
 
 ## Features
 
