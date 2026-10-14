@@ -124,6 +124,15 @@ certui/
 │   │                        pkcs12 and openssl x509 subprocesses. Handles
 │   │                        legacy cipher detection.
 │   │
+│   ├── extract/             Extracts the public or private key from a PFX/P12,
+│   │                        PEM or DER file (openssl x509 -pubkey / pkey).
+│   │                        Picks the end-entity cert regardless of bundle order.
+│   │
+│   ├── ossl/                Shared openssl runner. Passwords travel as
+│   │                        -passin/-passout env:… (never on argv, which any
+│   │                        local user can read via ps); TempFile() gives
+│   │                        unique 0600 temp files the caller removes.
+│   │
 │   ├── inspect/             Parses openssl x509 -text output into CertInfo
 │   │                        structs. Supports PEM, DER, and PFX inputs.
 │   │                        Exposes NewWithFileEmbedded for use inside other
@@ -195,6 +204,11 @@ Key conventions:
   `View`. Sub-models embed it as a field and delegate messages to it when
   `m.step == stepFile`. When `picker.Done` is true the parent reads `picker.Selected`
   and advances its own step.
+
+- **Esc ownership**: the menu returns to the main screen on `esc` unless the
+  sub-model implements `CapturesEsc() bool` and returns true (help overlay
+  open, save prompt active, nested view). Implement it whenever a screen
+  uses `esc` for something local.
 
 - **`HelpSection` / `RenderHelp`** provide a uniform help overlay. Each
   sub-model defines its own `[]HelpSection` and passes them to `RenderHelp()`.

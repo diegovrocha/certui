@@ -147,3 +147,7 @@ func (m *Model) renderHelp() string {
 	}
 	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── History ──") + "\n" + ui.RenderHelp("History — Help", sections)
 }
+
+// CapturesEsc tells the menu to forward esc to this screen instead of
+// returning to the main menu (help overlay or a nested view is open).
+func (m *Model) CapturesEsc() bool { return m.showHelp }

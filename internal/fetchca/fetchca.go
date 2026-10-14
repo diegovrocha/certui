@@ -542,3 +542,7 @@ func sanitize(s string) string {
 	)
 	return strings.Trim(r.Replace(s), "._")
 }
+
+// CapturesEsc tells the menu to forward esc to this screen instead of
+// returning to the main menu (help overlay or a nested view is open).
+func (m *Model) CapturesEsc() bool { return m.showHelp || m.saving }

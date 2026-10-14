@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/diegovrocha/certui/internal/batch"
 	"github.com/diegovrocha/certui/internal/convert"
+	"github.com/diegovrocha/certui/internal/extract"
 	"github.com/diegovrocha/certui/internal/fetchca"
 	"github.com/diegovrocha/certui/internal/generate"
 	"github.com/diegovrocha/certui/internal/history"
@@ -65,6 +66,7 @@ func New() Model {
 		{label: "PFX/P12 → CER", desc: "certificate PEM (text)", action: "pfx_cer_pem"},
 		{label: "PFX/P12 → CER", desc: "certificate DER (binary)", action: "pfx_cer_der"},
 		{label: "PFX/P12 → KEY", desc: "private key only", action: "pfx_key"},
+		{label: "Extract key", desc: "public or private key from cert/PFX/PEM", action: "extract_key"},
 		{label: "PFX/P12 → P12", desc: "repack --legacy → modern", action: "pfx_repack"},
 		{label: "PFX/P12 → P12", desc: "repack modern → Java8/legacy (3DES)", action: "pfx_repack_java"},
 		{label: "── GENERATE ─────────────────────────────────────", isSeparator: true},
@@ -211,9 +213,20 @@ func (m Model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// escCapturer is implemented by sub-screens that need esc for themselves
+// (closing a help overlay, cancelling a save prompt, leaving a nested view).
+type escCapturer interface {
+	CapturesEsc() bool
+}
+
 func (m Model) updateSub(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
+		if c, ok := m.sub.(escCapturer); ok && c.CapturesEsc() {
+			var cmd tea.Cmd
+			m.sub, cmd = m.sub.Update(msg)
+			return m, cmd
+		}
 		m.screen = screenMenu
 		m.sub = nil
 		return m, nil
@@ -317,6 +330,10 @@ func (m Model) handleAction(action string) (tea.Model, tea.Cmd) {
 		m.screen = screenSub
 		m.sub = convert.NewPfxToKey()
 		return m, m.sub.Init()
+	case "extract_key":
+		m.screen = screenSub
+		m.sub = extract.New()
+		return m, m.sub.Init()
 	case "pfx_repack":
 		m.screen = screenSub
 		m.sub = convert.NewPfxRepack()
@@ -394,7 +411,7 @@ func (m Model) View() string {
 	filtering := m.filterMode && strings.TrimSpace(m.filterText) != ""
 	visibleSet := map[int]bool{}
 	matches := 0
-	if filtering {
+	if m.filterMode {
 		for _, idx := range m.visibleIndices() {
 			visibleSet[idx] = true
 			matches++

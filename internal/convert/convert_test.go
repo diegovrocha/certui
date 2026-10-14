@@ -330,3 +330,59 @@ func TestRunConversionRepack(t *testing.T) {
 		t.Errorf("repacked P12 not readable by openssl: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// runConvert regressions
+// ---------------------------------------------------------------------------
+
+func TestRunConvertKeyForcesMode600OnExistingFile(t *testing.T) {
+	ensureOpenSSL(t)
+	dir := t.TempDir()
+	p12 := genP12(t, dir, "perm", "secret")
+	out := filepath.Join(dir, "existing.key")
+	if err := os.WriteFile(out, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, ct := range []convType{typePfxKey, typePfxPem} {
+		os.Chmod(out, 0o644)
+		if _, err := runConvert(ct, p12, "secret", "", out); err != nil {
+			t.Fatalf("%s: %v", convTypeName(ct), err)
+		}
+		if st, _ := os.Stat(out); st.Mode().Perm() != 0o600 {
+			t.Errorf("%s: mode = %v, want 0600", convTypeName(ct), st.Mode().Perm())
+		}
+	}
+}
+
+func TestRunConvertRepackLeavesNoTempFiles(t *testing.T) {
+	ensureOpenSSL(t)
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", filepath.Join(dir, "tmp"))
+	os.Mkdir(filepath.Join(dir, "tmp"), 0o700)
+	p12 := genP12(t, dir, "repack", "secret")
+
+	for _, ct := range []convType{typePfxRepack, typePfxRepackJava, typePfxCerDer} {
+		out := filepath.Join(dir, convTypeName(ct)+".out")
+		if _, err := runConvert(ct, p12, "secret", "newpass", out); err != nil {
+			t.Fatalf("%s: %v", convTypeName(ct), err)
+		}
+	}
+	left, _ := os.ReadDir(filepath.Join(dir, "tmp"))
+	if len(left) != 0 {
+		t.Errorf("temp files left behind: %v", left)
+	}
+	// The repacked file opens with the new password only.
+	if err := runOpenSSL(append([]string{"pkcs12", "-in", filepath.Join(dir, "pfx_repack.out"),
+		"-noout", "-passin", "pass:newpass"}, detectLegacy()...)...); err != nil {
+		t.Errorf("repacked p12 rejects new password: %v", err)
+	}
+}
+
+func TestRunConvertRejectsSameInputAndOutput(t *testing.T) {
+	ensureOpenSSL(t)
+	dir := t.TempDir()
+	p12 := genP12(t, dir, "same", "secret")
+	if _, err := runConvert(typePfxRepack, p12, "secret", "x", p12); err == nil {
+		t.Error("expected error when output == input")
+	}
+}

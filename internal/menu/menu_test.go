@@ -1,6 +1,7 @@
 package menu
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -66,7 +67,7 @@ func TestMenuHasAllActions(t *testing.T) {
 	m := New()
 
 	expectedActions := []string{
-		"pfx_pem", "pfx_cer_pem", "pfx_cer_der", "pfx_key", "pfx_repack",
+		"pfx_pem", "pfx_cer_pem", "pfx_cer_der", "pfx_key", "extract_key", "pfx_repack",
 		"inspect", "remote", "batch_inspect", "verify_chain", "verify_key", "compare_hash", "gen_self", "history", "update", "quit",
 	}
 
@@ -211,5 +212,39 @@ func TestFuzzyMatchItems(t *testing.T) {
 	// At least "Inspect" and "Batch inspect" should match.
 	if len(visible) < 2 {
 		t.Errorf("expected >=2 matches for 'insp', got %d", len(visible))
+	}
+}
+
+// escSub is a sub-screen that claims esc while its overlay is open.
+type escSub struct {
+	open bool
+	got  int
+}
+
+func (s *escSub) Init() tea.Cmd                           { return nil }
+func (s *escSub) View() string                            { return "" }
+func (s *escSub) CapturesEsc() bool                       { return s.open }
+func (s *escSub) Update(msg tea.Msg) (tea.Model, tea.Cmd) { s.got++; s.open = false; return s, nil }
+
+func TestEscGoesToSubWhenItCaptures(t *testing.T) {
+	sub := &escSub{open: true}
+	m := New()
+	m.screen, m.sub = screenSub, sub
+
+	m = sendKey(m, "esc")
+	if m.screen != screenSub || sub.got != 1 {
+		t.Fatalf("esc with overlay open should stay in sub (screen=%v got=%d)", m.screen, sub.got)
+	}
+	m = sendKey(m, "esc")
+	if m.screen != screenMenu {
+		t.Error("second esc should return to the menu")
+	}
+}
+
+func TestFilterEmptyShowsAllMatches(t *testing.T) {
+	m := sendKey(New(), "/")
+	want := fmt.Sprintf("Matches: %d", len(m.visibleIndices()))
+	if !strings.Contains(m.View(), want) {
+		t.Errorf("empty filter view should contain %q", want)
 	}
 }

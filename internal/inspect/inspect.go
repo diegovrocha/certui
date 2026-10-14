@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/diegovrocha/certui/internal/history"
+	"github.com/diegovrocha/certui/internal/ossl"
 	"github.com/diegovrocha/certui/internal/ui"
 )
 
@@ -340,18 +341,25 @@ func (m *Model) doInspect() tea.Cmd {
 
 		switch ext {
 		case "pfx", "p12":
-			tmp := "/tmp/certui_inspect.pem"
+			tmp, cleanup, err := ossl.TempFile("certui_inspect_*.pem")
+			if err != nil {
+				return inspectResult{err: err.Error()}
+			}
+			defer cleanup()
 			args := []string{"pkcs12", "-in", m.infile, "-out", tmp,
-				"-passin", "pass:" + m.password, "-nokeys", "-clcerts"}
-			legacy := detectLegacy()
-			args = append(args, legacy...)
-			if err := runCmd("openssl", args...); err != nil {
+				"-passin", ossl.PassIn, "-nokeys", "-clcerts"}
+			args = append(args, detectLegacy()...)
+			if err := ossl.Run(m.password, "", args...); err != nil {
 				return inspectResult{err: "Failed to read certificate: " + err.Error()}
 			}
 			pemFile = tmp
 		case "cer", "der":
 			if !hasPEMMarker(m.infile) {
-				tmp := "/tmp/certui_inspect_der.pem"
+				tmp, cleanup, err := ossl.TempFile("certui_inspect_der_*.pem")
+				if err != nil {
+					return inspectResult{err: err.Error()}
+				}
+				defer cleanup()
 				if err := runCmd("openssl", "x509", "-in", m.infile, "-inform", "DER",
 					"-out", tmp, "-outform", "PEM"); err != nil {
 					return inspectResult{err: "Unrecognized format"}
@@ -370,6 +378,8 @@ func (m *Model) doInspect() tea.Cmd {
 		if len(certs) == 0 {
 			return inspectResult{err: "No certificates found"}
 		}
+
+		defer removeAll(certs)
 
 		var infos []CertInfo
 		for i, certFile := range certs {
@@ -614,17 +624,7 @@ func hasPrivateKeyOnly(file string) bool {
 	return hasKey && !hasCert
 }
 
-func detectLegacy() []string {
-	out, _ := exec.Command("openssl", "list", "-providers").Output()
-	if strings.Contains(strings.ToLower(string(out)), "legacy") {
-		return []string{"-legacy"}
-	}
-	out2, _ := exec.Command("openssl", "pkcs12", "-help").CombinedOutput()
-	if strings.Contains(string(out2), "-legacy") {
-		return []string{"-legacy"}
-	}
-	return nil
-}
+func detectLegacy() []string { return ossl.DetectLegacy() }
 
 func splitPEM(file string) []string {
 	data, err := exec.Command("cat", file).Output()
@@ -645,15 +645,26 @@ func splitPEM(file string) []string {
 		}
 		end += start + len("-----END CERTIFICATE-----")
 
-		tmp := fmt.Sprintf("/tmp/certui_cert_%d.pem", len(certs))
-		if err := exec.Command("bash", "-c",
-			fmt.Sprintf("cat > %s << 'CERTEOF'\n%s\nCERTEOF", tmp, content[start:end])).Run(); err != nil {
+		tmp, _, err := ossl.TempFile("certui_cert_*.pem")
+		if err != nil {
+			break
+		}
+		if err := os.WriteFile(tmp, []byte(content[start:end]+"\n"), 0o600); err != nil {
+			os.Remove(tmp)
+			content = content[end:]
 			continue
 		}
 		certs = append(certs, tmp)
 		content = content[end:]
 	}
 	return certs
+}
+
+// removeAll deletes the temp files returned by splitPEM.
+func removeAll(paths []string) {
+	for _, p := range paths {
+		os.Remove(p)
+	}
 }
 
 func extractInfo(certFile string, num, total int) *CertInfo {
@@ -701,7 +712,7 @@ func extractInfo(certFile string, num, total int) *CertInfo {
 	sans := extractExtension(fullStr, "Subject Alternative Name:")
 
 	// Key Usage
-	keyUsage := extractExtension(fullStr, "Key Usage:")
+	keyUsage := extractExtension(fullStr, "X509v3 Key Usage:")
 
 	// Extended Key Usage
 	extKeyUsage := extractExtension(fullStr, "Extended Key Usage:")
@@ -771,9 +782,14 @@ func extractInfo(certFile string, num, total int) *CertInfo {
 	sigValue := extractSignatureValue(fullStr)
 
 	certType := fmt.Sprintf("Certificate %d of %d", num, total)
+	isCA := strings.Contains(basicConst, "CA:TRUE")
+	hasBC := basicConst != ""
 	if subject == issuer {
 		certType += " — Root CA (self-signed)"
-	} else if num == 1 {
+	} else if isCA {
+		certType += " — Intermediate CA"
+	} else if hasBC || num == 1 {
+		// Without Basic Constraints fall back to bundle position.
 		certType += " — End-entity certificate"
 	} else {
 		certType += " — Intermediate CA"
@@ -836,16 +852,20 @@ func extractExtension(text, label string) string {
 		return strings.TrimSpace(rest)
 	}
 	sameLine := strings.TrimSpace(rest[:nl])
-	if sameLine != "" {
+	if sameLine != "" && sameLine != "critical" {
 		return sameLine
 	}
-	// Value on the next line (indented)
+	// Value on the next line (indented); "critical" is only a flag on the label line
 	rest = rest[nl+1:]
-	nl = strings.Index(rest, "\n")
-	if nl == -1 {
-		return strings.TrimSpace(rest)
+	value := rest
+	if nl = strings.Index(rest, "\n"); nl != -1 {
+		value = rest[:nl]
 	}
-	return strings.TrimSpace(rest[:nl])
+	value = strings.TrimSpace(value)
+	if sameLine == "critical" {
+		return value + " (critical)"
+	}
+	return value
 }
 
 // Extracts a multi-line extension block (e.g., AIA, CRL, Policies)
@@ -970,3 +990,7 @@ func extractCN(subject string) string {
 func runCmd(name string, args ...string) error {
 	return exec.Command(name, args...).Run()
 }
+
+// CapturesEsc tells the menu to forward esc to this screen instead of
+// returning to the main menu (help overlay or a nested view is open).
+func (m *Model) CapturesEsc() bool { return m.showHelp || m.saving }

@@ -16,6 +16,7 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/diegovrocha/certui/internal/history"
 	"github.com/diegovrocha/certui/internal/inspect"
+	"github.com/diegovrocha/certui/internal/ossl"
 	"github.com/diegovrocha/certui/internal/ui"
 )
 
@@ -180,7 +181,9 @@ func extractRow(path, rel, ext string) Row {
 	// DER detection: if not a PEM marker, convert via openssl
 	if ext == ".der" || ext == ".cer" {
 		if !hasPEMMarker(path) {
-			tmp = fmt.Sprintf("/tmp/certui_batch_%d.pem", time.Now().UnixNano())
+			var cleanup func()
+			tmp, cleanup, _ = ossl.TempFile("certui_batch_*.pem")
+			defer cleanup()
 			if err := exec.Command("openssl", "x509", "-in", path, "-inform", "DER",
 				"-out", tmp, "-outform", "PEM").Run(); err != nil {
 				r.CN = "—"
@@ -190,7 +193,6 @@ func extractRow(path, rel, ext string) Row {
 				return r
 			}
 			pemFile = tmp
-			defer exec.Command("rm", "-f", tmp).Run()
 		}
 	}
 
@@ -721,3 +723,7 @@ func padLeft(s string, w int) string {
 	}
 	return strings.Repeat(" ", pad) + s
 }
+
+// CapturesEsc tells the menu to forward esc to this screen instead of
+// returning to the main menu (help overlay or a nested view is open).
+func (m *Model) CapturesEsc() bool { return m.showHelp || m.step == stepDetail }

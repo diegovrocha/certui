@@ -1,14 +1,16 @@
 package convert
 
 import (
+	"errors"
 	"fmt"
-	"os/exec"
+	"os"
 	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/diegovrocha/certui/internal/history"
+	"github.com/diegovrocha/certui/internal/ossl"
 	"github.com/diegovrocha/certui/internal/ui"
 )
 
@@ -188,75 +190,99 @@ type convResult struct {
 
 func (m Model) runConversion() tea.Cmd {
 	return func() tea.Msg {
-		legacy := detectLegacy()
-
-		switch m.convType {
-		case typePfxPem:
-			args := append([]string{"pkcs12", "-in", m.infile, "-out", m.outfile,
-				"-passin", "pass:" + m.password, "-nodes"}, legacy...)
-			if err := runOpenSSL(args...); err != nil {
-				return convResult{false, "Extraction failed: " + err.Error()}
-			}
-			return convResult{true, "File: " + m.outfile}
-
-		case typePfxCerPem:
-			args := append([]string{"pkcs12", "-in", m.infile, "-out", m.outfile,
-				"-passin", "pass:" + m.password, "-nokeys", "-clcerts"}, legacy...)
-			if err := runOpenSSL(args...); err != nil {
-				return convResult{false, "Extraction failed: " + err.Error()}
-			}
-			return convResult{true, "Format: PEM (text)"}
-
-		case typePfxCerDer:
-			tmp := "/tmp/certui_tmp.pem"
-			args := append([]string{"pkcs12", "-in", m.infile, "-out", tmp,
-				"-passin", "pass:" + m.password, "-nokeys", "-clcerts"}, legacy...)
-			if err := runOpenSSL(args...); err != nil {
-				return convResult{false, "Extraction failed: " + err.Error()}
-			}
-			if err := runOpenSSL("x509", "-in", tmp, "-out", m.outfile, "-outform", "DER"); err != nil {
-				return convResult{false, "DER conversion failed: " + err.Error()}
-			}
-			return convResult{true, "Format: DER (binary)"}
-
-		case typePfxKey:
-			args := append([]string{"pkcs12", "-in", m.infile, "-out", m.outfile,
-				"-passin", "pass:" + m.password, "-nocerts", "-nodes"}, legacy...)
-			if err := runOpenSSL(args...); err != nil {
-				return convResult{false, "Extraction failed: " + err.Error()}
-			}
-			return convResult{true, "Permission: 600"}
-
-		case typePfxRepack:
-			tmp := "/tmp/certui_repack.pem"
-			args := append([]string{"pkcs12", "-in", m.infile, "-out", tmp,
-				"-passin", "pass:" + m.password, "-nodes"}, legacy...)
-			if err := runOpenSSL(args...); err != nil {
-				return convResult{false, "Extraction failed (--legacy): " + err.Error()}
-			}
-			if err := runOpenSSL("pkcs12", "-export", "-in", tmp, "-out", m.outfile,
-				"-passout", "pass:"+m.password2); err != nil {
-				return convResult{false, "Repack failed: " + err.Error()}
-			}
-			return convResult{true, "Converted --legacy → modern (AES-256-CBC)"}
-
-		case typePfxRepackJava:
-			tmp := "/tmp/certui_repack_java.pem"
-			args := append([]string{"pkcs12", "-in", m.infile, "-out", tmp,
-				"-passin", "pass:" + m.password, "-nodes"}, legacy...)
-			if err := runOpenSSL(args...); err != nil {
-				return convResult{false, "Extraction failed: " + err.Error()}
-			}
-			if err := runOpenSSL("pkcs12", "-export", "-in", tmp, "-out", m.outfile,
-				"-passout", "pass:"+m.password2,
-				"-keypbe", "PBE-SHA1-3DES", "-certpbe", "PBE-SHA1-3DES", "-macalg", "sha1"); err != nil {
-				return convResult{false, "Repack (Java8) failed: " + err.Error()}
-			}
-			return convResult{true, "Converted modern → Java8/legacy (3DES+SHA1)"}
+		msg, err := runConvert(m.convType, m.infile, m.password, m.password2, m.outfile)
+		if err != nil {
+			return convResult{false, err.Error()}
 		}
-
-		return convResult{false, "Unknown type"}
+		return convResult{true, msg}
 	}
+}
+
+// runConvert performs the conversion and returns the success line for the
+// result box. Passwords reach openssl through the environment (ossl.PassIn /
+// ossl.PassOut), and intermediate PEMs holding private keys are unique 0600
+// temp files removed before returning.
+func runConvert(ct convType, infile, password, password2, outfile string) (string, error) {
+	if sameFile(infile, outfile) {
+		return "", errors.New("output file must be different from the input file")
+	}
+	legacy := detectLegacy()
+	pkcs12In := func(out string, flags ...string) error {
+		args := append([]string{"pkcs12", "-in", infile, "-out", out, "-passin", ossl.PassIn}, flags...)
+		return ossl.Run(password, "", append(args, legacy...)...)
+	}
+
+	switch ct {
+	case typePfxPem:
+		if err := pkcs12In(outfile, "-nodes"); err != nil {
+			return "", fmt.Errorf("Extraction failed: %w", err)
+		}
+		if err := os.Chmod(outfile, 0o600); err != nil {
+			return "", err
+		}
+		return "File: " + outfile + "  Permission: 600", nil
+
+	case typePfxCerPem:
+		if err := pkcs12In(outfile, "-nokeys", "-clcerts"); err != nil {
+			return "", fmt.Errorf("Extraction failed: %w", err)
+		}
+		return "Format: PEM (text)", nil
+
+	case typePfxCerDer:
+		tmp, cleanup, err := ossl.TempFile("certui_conv_*.pem")
+		if err != nil {
+			return "", err
+		}
+		defer cleanup()
+		if err := pkcs12In(tmp, "-nokeys", "-clcerts"); err != nil {
+			return "", fmt.Errorf("Extraction failed: %w", err)
+		}
+		if err := ossl.Run("", "", "x509", "-in", tmp, "-out", outfile, "-outform", "DER"); err != nil {
+			return "", fmt.Errorf("DER conversion failed: %w", err)
+		}
+		return "Format: DER (binary)", nil
+
+	case typePfxKey:
+		if err := pkcs12In(outfile, "-nocerts", "-nodes"); err != nil {
+			return "", fmt.Errorf("Extraction failed: %w", err)
+		}
+		// openssl keeps the mode of an existing file, so enforce it.
+		if err := os.Chmod(outfile, 0o600); err != nil {
+			return "", err
+		}
+		return "Permission: 600", nil
+
+	case typePfxRepack, typePfxRepackJava:
+		tmp, cleanup, err := ossl.TempFile("certui_repack_*.pem")
+		if err != nil {
+			return "", err
+		}
+		defer cleanup()
+		if err := pkcs12In(tmp, "-nodes"); err != nil {
+			return "", fmt.Errorf("Extraction failed: %w", err)
+		}
+		args := []string{"pkcs12", "-export", "-in", tmp, "-out", outfile, "-passout", ossl.PassOut}
+		if ct == typePfxRepackJava {
+			args = append(args, "-keypbe", "PBE-SHA1-3DES", "-certpbe", "PBE-SHA1-3DES", "-macalg", "sha1")
+			if err := ossl.Run("", password2, args...); err != nil {
+				return "", fmt.Errorf("Repack (Java8) failed: %w", err)
+			}
+			return "Converted modern → Java8/legacy (3DES+SHA1)", nil
+		}
+		if err := ossl.Run("", password2, args...); err != nil {
+			return "", fmt.Errorf("Repack failed: %w", err)
+		}
+		return "Converted --legacy → modern (AES-256-CBC)", nil
+	}
+
+	return "", errors.New("Unknown type")
+}
+
+// sameFile reports whether a and b refer to the same existing file.
+func sameFile(a, b string) bool {
+	sa, err1 := os.Stat(a)
+	sb, err2 := os.Stat(b)
+	return err1 == nil && err2 == nil && os.SameFile(sa, sb)
 }
 
 func (m Model) View() string {
@@ -323,21 +349,9 @@ func (m Model) renderHelp() string {
 	return "\n" + ui.Banner() + "  " + ui.TitleStyle.Render("── "+m.title+" ──") + "\n" + ui.RenderHelp("Convert — Help", sections)
 }
 
-func detectLegacy() []string {
-	out, _ := exec.Command("openssl", "list", "-providers").Output()
-	if strings.Contains(strings.ToLower(string(out)), "legacy") {
-		return []string{"-legacy"}
-	}
-	out2, _ := exec.Command("openssl", "pkcs12", "-help").CombinedOutput()
-	if strings.Contains(string(out2), "-legacy") {
-		return []string{"-legacy"}
-	}
-	return nil
-}
+func detectLegacy() []string { return ossl.DetectLegacy() }
 
-func runOpenSSL(args ...string) error {
-	return exec.Command("openssl", args...).Run()
-}
+func runOpenSSL(args ...string) error { return ossl.Run("", "", args...) }
 
 func convTypeName(ct convType) string {
 	switch ct {
@@ -356,3 +370,7 @@ func convTypeName(ct convType) string {
 	}
 	return "unknown"
 }
+
+// CapturesEsc tells the menu to forward esc to this screen instead of
+// returning to the main menu (help overlay or a nested view is open).
+func (m Model) CapturesEsc() bool { return m.showHelp }

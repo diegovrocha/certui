@@ -45,6 +45,7 @@ func TestSplitPEM(t *testing.T) {
 
 	// 1 cert
 	certs := splitPEM(certFile)
+	defer removeAll(certs)
 	if len(certs) != 1 {
 		t.Errorf("splitPEM with 1 cert should return 1, returned %d", len(certs))
 	}
@@ -55,14 +56,10 @@ func TestSplitPEM(t *testing.T) {
 	chainData := string(certData) + "\n" + string(certData) + "\n" + string(certData)
 	os.WriteFile(chainFile, []byte(chainData), 0644)
 
-	certs = splitPEM(chainFile)
-	if len(certs) != 3 {
-		t.Errorf("splitPEM with 3 certs should return 3, returned %d", len(certs))
-	}
-
-	// Clean up tmp files
-	for _, c := range certs {
-		os.Remove(c)
+	chain := splitPEM(chainFile)
+	defer removeAll(chain)
+	if len(chain) != 3 {
+		t.Errorf("splitPEM with 3 certs should return 3, returned %d", len(chain))
 	}
 }
 
@@ -259,5 +256,58 @@ func TestHasPrivateKeyOnly(t *testing.T) {
 	os.WriteFile(keyFile, []byte("-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n"), 0644)
 	if !hasPrivateKeyOnly(keyFile) {
 		t.Error("File with only key should be 'private key only'")
+	}
+}
+
+func TestExtractExtensionCritical(t *testing.T) {
+	text := `        X509v3 extensions:
+            X509v3 Basic Constraints: critical
+                CA:TRUE
+            X509v3 Key Usage: critical
+                Certificate Sign, CRL Sign
+            X509v3 Extended Key Usage:
+                TLS Web Server Authentication
+`
+	if got := extractExtension(text, "Basic Constraints:"); got != "CA:TRUE (critical)" {
+		t.Errorf("Basic Constraints = %q", got)
+	}
+	if got := extractExtension(text, "X509v3 Key Usage:"); got != "Certificate Sign, CRL Sign (critical)" {
+		t.Errorf("Key Usage = %q", got)
+	}
+	if got := extractExtension(text, "Extended Key Usage:"); got != "TLS Web Server Authentication" {
+		t.Errorf("Extended Key Usage = %q", got)
+	}
+}
+
+// An intermediate CA alone (first in its bundle) must not be labelled end-entity.
+func TestExtractInfoClassifiesIntermediateByBasicConstraints(t *testing.T) {
+	if _, err := exec.LookPath("openssl"); err != nil {
+		t.Skip("openssl not in PATH")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("openssl", args...).CombinedOutput(); err != nil {
+			t.Fatalf("openssl %v: %v\n%s", args, err, out)
+		}
+	}
+	root, rootKey := filepath.Join(dir, "root.crt"), filepath.Join(dir, "root.key")
+	inter, interKey, csr := filepath.Join(dir, "int.crt"), filepath.Join(dir, "int.key"), filepath.Join(dir, "int.csr")
+	ext := filepath.Join(dir, "ext.cnf")
+	os.WriteFile(ext, []byte("basicConstraints=critical,CA:TRUE\n"), 0o644)
+	run("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", rootKey, "-out", root, "-days", "1", "-subj", "/CN=Root")
+	run("req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", interKey, "-out", csr, "-subj", "/CN=Intermediate")
+	run("x509", "-req", "-in", csr, "-CA", root, "-CAkey", rootKey, "-CAcreateserial", "-out", inter,
+		"-days", "1", "-extfile", ext)
+
+	info := extractInfo(inter, 1, 1)
+	if info == nil {
+		t.Fatal("extractInfo returned nil")
+	}
+	if !strings.Contains(info.CertType, "Intermediate CA") {
+		t.Errorf("CertType = %q, want Intermediate CA", info.CertType)
+	}
+	if info.BasicConstraints != "CA:TRUE (critical)" {
+		t.Errorf("BasicConstraints = %q", info.BasicConstraints)
 	}
 }

@@ -766,3 +766,7 @@ func sanitize(s string) string {
 	r := strings.NewReplacer("*", "_", " ", "_", "/", "_", "\\", "_")
 	return r.Replace(s)
 }
+
+// CapturesEsc tells the menu to forward esc to this screen instead of
+// returning to the main menu (help overlay or a nested view is open).
+func (m *Model) CapturesEsc() bool { return m.showHelp }

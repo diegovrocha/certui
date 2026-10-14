@@ -501,3 +501,9 @@ func evalSymlinks(p string) (string, error) { return filepath.EvalSymlinks(p) }
 func osExecutableReal() (string, error) {
 	return os.Executable()
 }
+
+// CapturesEsc tells the menu to forward esc to this screen instead of
+// returning to the main menu (help overlay or a nested view is open).
+func (m *Model) CapturesEsc() bool {
+	return m.showHelp || (m.step == stepDone && !m.restartAt.IsZero())
+}

@@ -2,12 +2,15 @@ package verify
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/diegovrocha/certui/internal/history"
+	"github.com/diegovrocha/certui/internal/ossl"
 	"github.com/diegovrocha/certui/internal/ui"
 )
 
@@ -762,8 +765,8 @@ func (m *CompareHashModel) doMultiCompare() tea.Cmd {
 			if sums[i].fingerprint == "" {
 				// Cleanup temp files
 				for _, p := range pems {
-					if strings.HasPrefix(p, "/tmp/certui_cmp_") {
-						exec.Command("rm", "-f", p).Run()
+					if isCmpTemp(p) {
+						os.Remove(p)
 					}
 				}
 				return multiCompareResult{err: fmt.Sprintf("Cannot read certificate: %s", files[i])}
@@ -791,8 +794,8 @@ func (m *CompareHashModel) doMultiCompare() tea.Cmd {
 		}
 		// Cleanup temp files
 		for _, p := range pems {
-			if strings.HasPrefix(p, "/tmp/certui_cmp_") {
-				exec.Command("rm", "-f", p).Run()
+			if isCmpTemp(p) {
+				os.Remove(p)
 			}
 		}
 		return multiCompareResult{summaries: sums, matrix: matrix, groups: groups}
@@ -800,26 +803,24 @@ func (m *CompareHashModel) doMultiCompare() tea.Cmd {
 }
 
 func extractPFXtoPEM(file, password string) (pemPath string, errMsg string) {
-	tmp := fmt.Sprintf("/tmp/certui_cmp_%d.pem", len(file))
-	legacy := detectLegacy2()
+	// Unique name per call: two PFX inputs must never share a temp file.
+	tmp, cleanup, err := ossl.TempFile("certui_cmp_*.pem")
+	if err != nil {
+		return "", "Cannot create temp file: " + err.Error()
+	}
 	args := append([]string{"pkcs12", "-in", file, "-out", tmp,
-		"-passin", "pass:" + password, "-nokeys", "-clcerts"}, legacy...)
-	if err := exec.Command("openssl", args...).Run(); err != nil {
+		"-passin", ossl.PassIn, "-nokeys", "-clcerts"}, ossl.DetectLegacy()...)
+	if err := ossl.Run(password, "", args...); err != nil {
+		cleanup()
 		return "", fmt.Sprintf("Failed to read %s: wrong password or invalid PFX", file)
 	}
 	return tmp, ""
 }
 
-func detectLegacy2() []string {
-	out, _ := exec.Command("openssl", "list", "-providers").Output()
-	if strings.Contains(strings.ToLower(string(out)), "legacy") {
-		return []string{"-legacy"}
-	}
-	out2, _ := exec.Command("openssl", "pkcs12", "-help").CombinedOutput()
-	if strings.Contains(string(out2), "-legacy") {
-		return []string{"-legacy"}
-	}
-	return nil
+// isCmpTemp reports whether p is a temp PEM created by extractPFXtoPEM.
+func isCmpTemp(p string) bool {
+	return strings.HasPrefix(filepath.Base(p), "certui_cmp_") &&
+		filepath.Dir(p) == filepath.Clean(os.TempDir())
 }
 
 func certField2(file, flag, prefix string) string {
@@ -843,6 +844,14 @@ func (m *CompareHashModel) doCompare() tea.Cmd {
 	m.summaries = nil
 
 	return func() tea.Msg {
+		defer func() {
+			if isCmpTemp(pem1) {
+				os.Remove(pem1)
+			}
+			if isCmpTemp(pem2) {
+				os.Remove(pem2)
+			}
+		}()
 		s1 := loadSummary(file1, pem1)
 		s2 := loadSummary(file2, pem2)
 
@@ -872,14 +881,6 @@ func (m *CompareHashModel) doCompare() tea.Cmd {
 				short2 = short2[:40] + "..."
 			}
 			fields = append(fields, certField{"Modulus (RSA)", short1, short2, s1.modulus == s2.modulus})
-		}
-
-		// Cleanup temp files
-		if strings.HasPrefix(pem1, "/tmp/certui_cmp_") {
-			exec.Command("rm", "-f", pem1).Run()
-		}
-		if strings.HasPrefix(pem2, "/tmp/certui_cmp_") {
-			exec.Command("rm", "-f", pem2).Run()
 		}
 
 		return compareResult{match: s1.fingerprint == s2.fingerprint, fields: fields}
@@ -1113,3 +1114,15 @@ func truncate(s string, n int) string {
 	}
 	return s[:n-3] + "..."
 }
+
+// CapturesEsc tells the menu to forward esc to this screen instead of
+// returning to the main menu (help overlay or a nested view is open).
+func (m *ChainModel) CapturesEsc() bool { return m.showHelp }
+
+// CapturesEsc tells the menu to forward esc to this screen instead of
+// returning to the main menu (help overlay or a nested view is open).
+func (m *CertKeyModel) CapturesEsc() bool { return m.showHelp }
+
+// CapturesEsc tells the menu to forward esc to this screen instead of
+// returning to the main menu (help overlay or a nested view is open).
+func (m *CompareHashModel) CapturesEsc() bool { return m.showHelp || m.step == cmpDiffView }

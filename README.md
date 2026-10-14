@@ -95,6 +95,7 @@ The menu is ordered by typical usage frequency: Validate → Convert → Generat
 - **PFX/P12 → PEM** — certificate + key as text
 - **PFX/P12 → CER** — certificate only, PEM (text) or DER (binary)
 - **PFX/P12 → KEY** — private key only
+- **Extract key** — public or private key from a certificate (PEM/DER), PFX/P12 or key file. Public key comes from the certificate (or is derived from the private key); private key is written unencrypted with mode `600`
 - **PFX/P12 → P12** — repack `--legacy` → modern cipher (AES-256-CBC)
 
 ### Generate
