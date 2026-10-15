@@ -311,3 +311,33 @@ func TestExtractInfoClassifiesIntermediateByBasicConstraints(t *testing.T) {
 		t.Errorf("BasicConstraints = %q", info.BasicConstraints)
 	}
 }
+
+// A bare public key (Extract key → public) is explained, not "No certificates found".
+func TestInspectPublicKeyFile(t *testing.T) {
+	if _, err := exec.LookPath("openssl"); err != nil {
+		t.Skip("openssl not in PATH")
+	}
+	dir := t.TempDir()
+	key, pub := filepath.Join(dir, "k.key"), filepath.Join(dir, "site_public.pem")
+	if out, err := exec.Command("openssl", "genpkey", "-algorithm", "RSA",
+		"-pkeyopt", "rsa_keygen_bits:2048", "-out", key).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if out, err := exec.Command("openssl", "pkey", "-in", key, "-pubout", "-out", pub).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+
+	m := &Model{infile: pub}
+	res := m.doInspect()().(inspectResult)
+	if res.err != "" || len(res.pubKey) == 0 {
+		t.Fatalf("got err=%q pubKey=%v, want public key info", res.err, res.pubKey)
+	}
+	if !strings.Contains(res.pubKey[0], "RSA 2048 bits") {
+		t.Errorf("algorithm line = %q", res.pubKey[0])
+	}
+
+	next, _ := m.Update(res)
+	if v := next.View(); !strings.Contains(v, "not a certificate") {
+		t.Errorf("view does not explain the file is a public key:\n%s", v)
+	}
+}

@@ -84,7 +84,7 @@ Each `release-*` target runs `go vet`, tests, tags and pushes. GitHub Actions th
 The menu is ordered by typical usage frequency: Validate → Convert → Generate.
 
 ### Validate
-- **Inspect** — view certificate details (CN, issuer, validity, SANs, key usage...). Press `f` for full view with Authority Key ID, OCSP, CRL, policies and signature. Press `y` to copy details to clipboard, `s` to save as `.txt`, `n` to inspect another
+- **Inspect** — view certificate details (CN, issuer, validity, SANs, key usage...). Press `f` for full view with Authority Key ID, OCSP, CRL, policies and signature. Press `y` to copy details to clipboard, `s` to save as `.txt`, `n` to inspect another. A bare public key file (`BEGIN PUBLIC KEY`) is recognised and shown with its algorithm and SHA-256, plus a note that it is not a certificate
 - **Batch inspect** — browse directories and scan any folder for all certificates. Shows a table with status (valid / expiring / expired), sortable by name (`c`), expiry date (`d`), or days remaining (`r`). Press `Enter` on any row to see full details, `b` to go back to folder browser
 - **Compare certs** — compare 2+ certificates by fingerprint, serial, subject and modulus. For 3+ certs shows a match matrix with identical-cert grouping. Supports PFX/PEM/DER (prompts for password on PFX). Press `d` in results for a side-by-side field-by-field diff with green (match) / red (differ) colors
 - **Download from URL** — fetch certificate from `host:port` via `openssl s_client`, shows TLS version, cipher and full chain. Press `s` to save the chain as `.pem`
@@ -95,7 +95,8 @@ The menu is ordered by typical usage frequency: Validate → Convert → Generat
 - **PFX/P12 → PEM** — certificate + key as text
 - **PFX/P12 → CER** — certificate only, PEM (text) or DER (binary)
 - **PFX/P12 → KEY** — private key only
-- **Extract key** — public or private key from a certificate (PEM/DER), PFX/P12 or key file. Public key comes from the certificate (or is derived from the private key); private key is written unencrypted with mode `600`
+- PEM outputs above ask whether to **remove** (default) or **keep** openssl's `Bag Attributes` header lines — some banks and portals reject files that carry them
+- **Extract key** — public or private key from a certificate (PEM/DER), PFX/P12 or key file. Public key comes from the certificate (or is derived from the private key) — note it is a bare key, not a certificate; systems asking for a "public certificate" want PFX/P12 → CER; private key is written unencrypted with mode `600`
 - **PFX/P12 → P12** — repack `--legacy` → modern cipher (AES-256-CBC)
 
 ### Generate

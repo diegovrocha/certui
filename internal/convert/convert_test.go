@@ -1,10 +1,15 @@
 package convert
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ensureOpenSSL skips the test if openssl is not in PATH.
@@ -345,7 +350,7 @@ func TestRunConvertKeyForcesMode600OnExistingFile(t *testing.T) {
 	}
 	for _, ct := range []convType{typePfxKey, typePfxPem} {
 		os.Chmod(out, 0o644)
-		if _, err := runConvert(ct, p12, "secret", "", out); err != nil {
+		if _, err := runConvert(ct, p12, "secret", "", out, false); err != nil {
 			t.Fatalf("%s: %v", convTypeName(ct), err)
 		}
 		if st, _ := os.Stat(out); st.Mode().Perm() != 0o600 {
@@ -363,7 +368,7 @@ func TestRunConvertRepackLeavesNoTempFiles(t *testing.T) {
 
 	for _, ct := range []convType{typePfxRepack, typePfxRepackJava, typePfxCerDer} {
 		out := filepath.Join(dir, convTypeName(ct)+".out")
-		if _, err := runConvert(ct, p12, "secret", "newpass", out); err != nil {
+		if _, err := runConvert(ct, p12, "secret", "newpass", out, false); err != nil {
 			t.Fatalf("%s: %v", convTypeName(ct), err)
 		}
 	}
@@ -382,7 +387,66 @@ func TestRunConvertRejectsSameInputAndOutput(t *testing.T) {
 	ensureOpenSSL(t)
 	dir := t.TempDir()
 	p12 := genP12(t, dir, "same", "secret")
-	if _, err := runConvert(typePfxRepack, p12, "secret", "x", p12); err == nil {
+	if _, err := runConvert(typePfxRepack, p12, "secret", "x", p12, false); err == nil {
 		t.Error("expected error when output == input")
+	}
+}
+
+func TestRunConvertBagAttributes(t *testing.T) {
+	ensureOpenSSL(t)
+	dir := t.TempDir()
+	p12 := genP12(t, dir, "bag", "secret")
+	for _, ct := range []convType{typePfxPem, typePfxCerPem, typePfxKey} {
+		for _, keep := range []bool{false, true} {
+			out := filepath.Join(dir, fmt.Sprintf("%s_%v.pem", convTypeName(ct), keep))
+			if _, err := runConvert(ct, p12, "secret", "", out, keep); err != nil {
+				t.Fatalf("%s keep=%v: %v", convTypeName(ct), keep, err)
+			}
+			data, _ := os.ReadFile(out)
+			has := strings.Contains(string(data), "Bag Attributes")
+			if has != keep {
+				t.Errorf("%s keep=%v: Bag Attributes present = %v", convTypeName(ct), keep, has)
+			}
+			if !keep && !strings.HasPrefix(string(data), "-----BEGIN ") {
+				t.Errorf("%s: stripped output does not start with a PEM block:\n%s", convTypeName(ct), data)
+			}
+			// Output must still be usable by openssl.
+			check := []string{"x509", "-in", out, "-noout"}
+			if ct == typePfxKey {
+				check = []string{"pkey", "-in", out, "-noout"}
+			}
+			if err := runOpenSSL(check...); err != nil {
+				t.Errorf("%s keep=%v: openssl cannot read output: %v", convTypeName(ct), keep, err)
+			}
+		}
+	}
+}
+
+func TestUpdateFlowBagAttributesStep(t *testing.T) {
+	m := NewPfxToCerPem().(Model)
+	m.step = stepPassword
+	m.infile = "/x/site.pfx"
+	m.input = textinput.New()
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.step != stepBagAttrs || m.keepBag {
+		t.Fatalf("step=%v keepBag=%v, want stepBagAttrs with Remove selected", m.step, m.keepBag)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	next, _ = next.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.step != stepOutput || !m.keepBag || m.input.Value() != "site.cer" {
+		t.Fatalf("step=%v keepBag=%v output=%q", m.step, m.keepBag, m.input.Value())
+	}
+
+	// DER and repack have no PEM text, so they skip the question.
+	d := NewPfxToCerDer().(Model)
+	d.step = stepPassword
+	d.input = textinput.New()
+	d.infile = "/x/site.pfx"
+	next, _ = d.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if next.(Model).step != stepOutput {
+		t.Errorf("DER: step = %v, want stepOutput", next.(Model).step)
 	}
 }

@@ -1,6 +1,13 @@
 package inspect
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"os/exec"
@@ -63,6 +70,7 @@ type Model struct {
 	scroll      int
 	height      int
 	err         string
+	pubKey      []string
 	fullView    bool
 	logged      bool
 	pendingInspect bool
@@ -126,6 +134,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case inspectResult:
 		m.certs = msg.certs
+		m.pubKey = msg.pubKey
 		m.err = msg.err
 		m.step = stepResult
 		m.scroll = 0
@@ -170,6 +179,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.step == stepResult {
 				m.step = stepFile
 				m.certs = nil
+				m.pubKey = nil
 				m.err = ""
 				m.logged = false
 				m.saveResult = ""
@@ -191,6 +201,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var cmd tea.Cmd
 				m.saveIn, cmd = m.saveIn.Update(msg)
 				return m, cmd
+			}
+			// Only "n" makes sense without certificate details on screen.
+			if len(m.certs) == 0 && msg.String() != "n" && msg.String() != "N" {
+				return m, nil
 			}
 			switch msg.String() {
 			case "up", "k":
@@ -215,6 +229,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Inspect another certificate without going back to the menu
 				m.step = stepFile
 				m.certs = nil
+				m.pubKey = nil
 				m.err = ""
 				m.scroll = 0
 				m.fullView = false
@@ -262,8 +277,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type inspectResult struct {
-	certs []CertInfo
-	err   string
+	certs  []CertInfo
+	pubKey []string // set when the file holds a bare public key
+	err    string
 }
 
 type copyClearMsg struct{}
@@ -376,6 +392,9 @@ func (m *Model) doInspect() tea.Cmd {
 
 		certs := splitPEM(pemFile)
 		if len(certs) == 0 {
+			if info := publicKeyInfo(pemFile); info != nil {
+				return inspectResult{pubKey: info}
+			}
 			return inspectResult{err: "No certificates found"}
 		}
 
@@ -418,6 +437,8 @@ func (m *Model) View() string {
 	case stepResult:
 		if m.err != "" {
 			b.WriteString(ui.ResultBox(false, "Error", m.err))
+		} else if m.pubKey != nil {
+			b.WriteString(ui.ResultBox(true, "Public key — not a certificate", m.pubKey...))
 		} else if m.saving {
 			b.WriteString("  Save certificate details to file:\n\n")
 			b.WriteString("  " + m.saveIn.View() + "\n")
@@ -477,7 +498,7 @@ func (m *Model) View() string {
 		}
 	}
 
-	if m.step == stepResult && m.err == "" {
+	if m.step == stepResult && m.err == "" && len(m.certs) > 0 {
 		// Transient copy message
 		if m.copyMsg != "" && time.Now().Before(m.copyExpires) {
 			b.WriteString("\n  " + ui.SuccessStyle.Render(m.copyMsg) + "\n")
@@ -994,3 +1015,52 @@ func runCmd(name string, args ...string) error {
 // CapturesEsc tells the menu to forward esc to this screen instead of
 // returning to the main menu (help overlay or a nested view is open).
 func (m *Model) CapturesEsc() bool { return m.showHelp || m.saving }
+
+// publicKeyInfo describes a PEM file that holds a bare public key (as written
+// by Extract key → public) instead of a certificate. Returns nil otherwise.
+func publicKeyInfo(file string) []string {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	for rest := data; ; {
+		var b *pem.Block
+		b, rest = pem.Decode(rest)
+		if b == nil {
+			return nil
+		}
+		var pub any
+		switch b.Type {
+		case "PUBLIC KEY":
+			pub, err = x509.ParsePKIXPublicKey(b.Bytes)
+		case "RSA PUBLIC KEY":
+			pub, err = x509.ParsePKCS1PublicKey(b.Bytes)
+		default:
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		sum := sha256.Sum256(b.Bytes)
+		return []string{
+			"Algorithm:  " + keyAlgorithm(pub),
+			"SHA-256:    " + strings.ToUpper(hex.EncodeToString(sum[:])),
+			"",
+			"A public key has no subject, issuer or validity.",
+			"Banks and portals asking for the \"public certificate\"",
+			"want the certificate: use PFX/P12 → CER (PEM/text).",
+		}
+	}
+}
+
+func keyAlgorithm(pub any) string {
+	switch k := pub.(type) {
+	case *rsa.PublicKey:
+		return fmt.Sprintf("RSA %d bits", k.N.BitLen())
+	case *ecdsa.PublicKey:
+		return "EC " + k.Curve.Params().Name
+	case ed25519.PublicKey:
+		return "Ed25519"
+	}
+	return fmt.Sprintf("%T", pub)
+}

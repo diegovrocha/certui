@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +20,7 @@ type step int
 const (
 	stepFile step = iota
 	stepPassword
+	stepBagAttrs
 	stepOutput
 	stepPassword2
 	stepRunning
@@ -44,6 +46,7 @@ type Model struct {
 	infile    string
 	password  string
 	password2 string
+	keepBag   bool // keep openssl's "Bag Attributes" header lines in the PEM output
 	outfile   string
 	result    string
 	success   bool
@@ -124,32 +127,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stepPassword:
 		if k, ok := msg.(tea.KeyMsg); ok && k.String() == "enter" {
 			m.password = m.input.Value()
-			base := strings.TrimSuffix(filepath.Base(m.infile), filepath.Ext(m.infile))
-
-			if m.convType == typePfxRepack || m.convType == typePfxRepackJava {
-				m.step = stepOutput
-				m.input = textinput.New()
-				m.input.SetValue(base + "_new.p12")
-				m.input.Focus()
-				return m, m.input.Focus()
+			if writesPEM(m.convType) {
+				m.step = stepBagAttrs
+				return m, nil
 			}
-
-			ext := ".pem"
-			switch m.convType {
-			case typePfxCerPem, typePfxCerDer:
-				ext = ".cer"
-			case typePfxKey:
-				ext = ".key"
-			}
-			m.step = stepOutput
-			m.input = textinput.New()
-			m.input.SetValue(base + ext)
-			m.input.Focus()
-			return m, m.input.Focus()
+			return m.toOutput()
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
+
+	case stepBagAttrs:
+		if k, ok := msg.(tea.KeyMsg); ok {
+			switch k.String() {
+			case "up", "k", "down", "j", "tab":
+				m.keepBag = !m.keepBag
+			case "enter":
+				return m.toOutput()
+			}
+		}
+		return m, nil
 
 	case stepOutput:
 		if k, ok := msg.(tea.KeyMsg); ok && k.String() == "enter" {
@@ -183,6 +180,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// toOutput moves to the output-file step with a default name for the type.
+func (m Model) toOutput() (tea.Model, tea.Cmd) {
+	base := strings.TrimSuffix(filepath.Base(m.infile), filepath.Ext(m.infile))
+	name := base + ".pem"
+	switch m.convType {
+	case typePfxRepack, typePfxRepackJava:
+		name = base + "_new.p12"
+	case typePfxCerPem, typePfxCerDer:
+		name = base + ".cer"
+	case typePfxKey:
+		name = base + ".key"
+	}
+	m.step = stepOutput
+	m.input = textinput.New()
+	m.input.SetValue(name)
+	return m, m.input.Focus()
+}
+
+// writesPEM reports whether the type writes openssl pkcs12 PEM output, which
+// carries "Bag Attributes" lines unless they are stripped.
+func writesPEM(ct convType) bool {
+	return ct == typePfxPem || ct == typePfxCerPem || ct == typePfxKey
+}
+
 type convResult struct {
 	success bool
 	message string
@@ -190,7 +211,7 @@ type convResult struct {
 
 func (m Model) runConversion() tea.Cmd {
 	return func() tea.Msg {
-		msg, err := runConvert(m.convType, m.infile, m.password, m.password2, m.outfile)
+		msg, err := runConvert(m.convType, m.infile, m.password, m.password2, m.outfile, m.keepBag)
 		if err != nil {
 			return convResult{false, err.Error()}
 		}
@@ -202,7 +223,7 @@ func (m Model) runConversion() tea.Cmd {
 // result box. Passwords reach openssl through the environment (ossl.PassIn /
 // ossl.PassOut), and intermediate PEMs holding private keys are unique 0600
 // temp files removed before returning.
-func runConvert(ct convType, infile, password, password2, outfile string) (string, error) {
+func runConvert(ct convType, infile, password, password2, outfile string, keepBag bool) (string, error) {
 	if sameFile(infile, outfile) {
 		return "", errors.New("output file must be different from the input file")
 	}
@@ -211,10 +232,20 @@ func runConvert(ct convType, infile, password, password2, outfile string) (strin
 		args := append([]string{"pkcs12", "-in", infile, "-out", out, "-passin", ossl.PassIn}, flags...)
 		return ossl.Run(password, "", append(args, legacy...)...)
 	}
+	// pkcs12Out writes the final PEM file, honouring keepBag.
+	pkcs12Out := func(flags ...string) error {
+		if err := pkcs12In(outfile, flags...); err != nil {
+			return err
+		}
+		if keepBag {
+			return nil
+		}
+		return stripBagAttributes(outfile)
+	}
 
 	switch ct {
 	case typePfxPem:
-		if err := pkcs12In(outfile, "-nodes"); err != nil {
+		if err := pkcs12Out("-nodes"); err != nil {
 			return "", fmt.Errorf("Extraction failed: %w", err)
 		}
 		if err := os.Chmod(outfile, 0o600); err != nil {
@@ -223,7 +254,7 @@ func runConvert(ct convType, infile, password, password2, outfile string) (strin
 		return "File: " + outfile + "  Permission: 600", nil
 
 	case typePfxCerPem:
-		if err := pkcs12In(outfile, "-nokeys", "-clcerts"); err != nil {
+		if err := pkcs12Out("-nokeys", "-clcerts"); err != nil {
 			return "", fmt.Errorf("Extraction failed: %w", err)
 		}
 		return "Format: PEM (text)", nil
@@ -243,7 +274,7 @@ func runConvert(ct convType, infile, password, password2, outfile string) (strin
 		return "Format: DER (binary)", nil
 
 	case typePfxKey:
-		if err := pkcs12In(outfile, "-nocerts", "-nodes"); err != nil {
+		if err := pkcs12Out("-nocerts", "-nodes"); err != nil {
 			return "", fmt.Errorf("Extraction failed: %w", err)
 		}
 		// openssl keeps the mode of an existing file, so enforce it.
@@ -278,6 +309,30 @@ func runConvert(ct convType, infile, password, password2, outfile string) (strin
 	return "", errors.New("Unknown type")
 }
 
+// stripBagAttributes rewrites a PEM file keeping only its PEM blocks, which
+// drops the "Bag Attributes" / "subject=" / "issuer=" lines openssl pkcs12
+// prints before each block. Some portals reject files that carry them.
+func stripBagAttributes(file string) error {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	var out []byte
+	for rest := data; ; {
+		var b *pem.Block
+		b, rest = pem.Decode(rest)
+		if b == nil {
+			break
+		}
+		out = append(out, pem.EncodeToMemory(b)...)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	// WriteFile keeps the mode of the existing file (600 for keys).
+	return os.WriteFile(file, out, 0o600)
+}
+
 // sameFile reports whether a and b refer to the same existing file.
 func sameFile(a, b string) bool {
 	sa, err1 := os.Stat(a)
@@ -306,6 +361,25 @@ func (m Model) View() string {
 		}
 		b.WriteString(fmt.Sprintf("  🔑 %s\n\n", label))
 		b.WriteString("  " + m.input.View() + "\n")
+
+	case stepBagAttrs:
+		b.WriteString(fmt.Sprintf("  File: %s\n\n", ui.ActiveStyle.Render(m.infile)))
+		b.WriteString("  Bag Attributes (localKeyID, friendlyName, subject/issuer lines before each block):\n\n")
+		opts := []string{
+			"Remove — clean PEM, only the BEGIN/END blocks (recommended for banks and portals)",
+			"Keep — openssl's default output",
+		}
+		sel := 0
+		if m.keepBag {
+			sel = 1
+		}
+		for i, o := range opts {
+			if i == sel {
+				b.WriteString("  " + ui.ActiveStyle.Render("▸ "+o) + "\n")
+			} else {
+				b.WriteString("    " + ui.DimStyle.Render(o) + "\n")
+			}
+		}
 
 	case stepOutput:
 		b.WriteString("  Output file:\n\n")
