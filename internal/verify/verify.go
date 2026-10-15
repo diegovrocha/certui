@@ -1,6 +1,10 @@
 package verify
 
 import (
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"os/exec"
@@ -450,6 +454,8 @@ type certSummary struct {
 	notBefore   string
 	notAfter    string
 	modulus     string
+	pubKey      string // SHA-256 of the SubjectPublicKeyInfo
+	keyOnly     bool   // file is a bare public key, not a certificate
 }
 
 type CompareHashModel struct {
@@ -463,6 +469,7 @@ type CompareHashModel struct {
 	pem1    string // resolved PEM path (temp file if PFX)
 	pem2    string
 	match   bool
+	byKey   bool // compared by public key (a bare key was involved)
 	fields  []certField
 	err     string
 
@@ -496,6 +503,7 @@ func (m *CompareHashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case compareResult:
 		m.match = msg.match
+		m.byKey = msg.byKey
 		m.fields = msg.fields
 		m.err = msg.err
 		m.step = cmpResultStep
@@ -714,6 +722,7 @@ func (m *CompareHashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 type compareResult struct {
 	match  bool
+	byKey  bool
 	fields []certField
 	err    string
 }
@@ -726,6 +735,9 @@ type multiCompareResult struct {
 }
 
 func loadSummary(file, pem string) certSummary {
+	if spki, ok := bareSPKI(pem); ok {
+		return certSummary{file: file, pem: pem, keyOnly: true, cn: "public key", pubKey: hashHex(spki)}
+	}
 	fp := certField2(pem, "-fingerprint", "")
 	if idx := strings.Index(fp, "="); idx >= 0 {
 		fp = fp[idx+1:]
@@ -747,8 +759,79 @@ func loadSummary(file, pem string) certSummary {
 	return certSummary{
 		file: file, pem: pem, fingerprint: fp, serial: ser,
 		subject: sub, issuer: iss, cn: cn, notBefore: nb, notAfter: na,
-		modulus: mod,
+		modulus: mod, pubKey: certPubKeyHash(pem),
 	}
+}
+
+// readable reports whether the file was understood as a certificate or key.
+func (s certSummary) readable() bool { return s.fingerprint != "" || s.keyOnly }
+
+// groupKey is what identifies "the same" item: the certificate fingerprint,
+// or the public key when comparing against bare keys.
+func (s certSummary) groupKey(byKey bool) string {
+	if byKey {
+		return s.pubKey
+	}
+	return s.fingerprint
+}
+
+func unreadable(file string) string {
+	return fmt.Sprintf("Cannot read %s: not a certificate or public key", filepath.Base(file))
+}
+
+func hashHex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return strings.ToUpper(hex.EncodeToString(sum[:]))
+}
+
+// bareSPKI returns the DER SubjectPublicKeyInfo of a file that holds only a
+// public key (PEM "PUBLIC KEY" / "RSA PUBLIC KEY"); ok is false otherwise.
+func bareSPKI(file string) ([]byte, bool) {
+	data, err := os.ReadFile(file)
+	if err != nil || strings.Contains(string(data), "-----BEGIN CERTIFICATE-----") {
+		return nil, false
+	}
+	for rest := data; ; {
+		var b *pem.Block
+		b, rest = pem.Decode(rest)
+		if b == nil {
+			return nil, false
+		}
+		switch b.Type {
+		case "PUBLIC KEY":
+			if _, err := x509.ParsePKIXPublicKey(b.Bytes); err == nil {
+				return b.Bytes, true
+			}
+		case "RSA PUBLIC KEY":
+			if k, err := x509.ParsePKCS1PublicKey(b.Bytes); err == nil {
+				if der, err := x509.MarshalPKIXPublicKey(k); err == nil {
+					return der, true
+				}
+			}
+		}
+	}
+}
+
+// certPubKeyHash hashes the SubjectPublicKeyInfo of the (first) certificate
+// in file, PEM or DER. openssl is used so lenient-encoded certs still work.
+func certPubKeyHash(file string) string {
+	out, _ := exec.Command("openssl", "x509", "-in", file, "-noout", "-pubkey").Output()
+	if len(out) == 0 {
+		out, _ = exec.Command("openssl", "x509", "-in", file, "-inform", "DER", "-noout", "-pubkey").Output()
+	}
+	if b, _ := pem.Decode(out); b != nil {
+		return hashHex(b.Bytes)
+	}
+	return ""
+}
+
+func anyKeyOnly(sums ...certSummary) bool {
+	for _, s := range sums {
+		if s.keyOnly {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *CompareHashModel) doMultiCompare() tea.Cmd {
@@ -762,31 +845,33 @@ func (m *CompareHashModel) doMultiCompare() tea.Cmd {
 		sums := make([]certSummary, n)
 		for i := 0; i < n; i++ {
 			sums[i] = loadSummary(files[i], pems[i])
-			if sums[i].fingerprint == "" {
+			if !sums[i].readable() {
 				// Cleanup temp files
 				for _, p := range pems {
 					if isCmpTemp(p) {
 						os.Remove(p)
 					}
 				}
-				return multiCompareResult{err: fmt.Sprintf("Cannot read certificate: %s", files[i])}
+				return multiCompareResult{err: unreadable(files[i])}
 			}
 		}
+		byKey := anyKeyOnly(sums...)
 		matrix := make([][]bool, n)
 		for i := 0; i < n; i++ {
 			matrix[i] = make([]bool, n)
 			for j := 0; j < n; j++ {
-				matrix[i][j] = sums[i].fingerprint == sums[j].fingerprint
+				matrix[i][j] = sums[i].groupKey(byKey) == sums[j].groupKey(byKey)
 			}
 		}
 		// Group identical certs by fingerprint
 		fpGroup := map[string][]int{}
 		order := []string{}
 		for i, s := range sums {
-			if _, ok := fpGroup[s.fingerprint]; !ok {
-				order = append(order, s.fingerprint)
+			k := s.groupKey(byKey)
+			if _, ok := fpGroup[k]; !ok {
+				order = append(order, k)
 			}
-			fpGroup[s.fingerprint] = append(fpGroup[s.fingerprint], i)
+			fpGroup[k] = append(fpGroup[k], i)
 		}
 		var groups [][]int
 		for _, fp := range order {
@@ -855,11 +940,27 @@ func (m *CompareHashModel) doCompare() tea.Cmd {
 		s1 := loadSummary(file1, pem1)
 		s2 := loadSummary(file2, pem2)
 
-		if s1.fingerprint == "" {
-			return compareResult{err: fmt.Sprintf("Cannot read certificate: %s", file1)}
+		if !s1.readable() {
+			return compareResult{err: unreadable(file1)}
 		}
-		if s2.fingerprint == "" {
-			return compareResult{err: fmt.Sprintf("Cannot read certificate: %s", file2)}
+		if !s2.readable() {
+			return compareResult{err: unreadable(file2)}
+		}
+
+		// A bare public key has no fingerprint, subject or validity: the
+		// only meaningful comparison is the public key itself.
+		if anyKeyOnly(s1, s2) {
+			kind := func(s certSummary) string {
+				if s.keyOnly {
+					return "Public key"
+				}
+				return "Certificate (" + s.cn + ")"
+			}
+			match := s1.pubKey != "" && s1.pubKey == s2.pubKey
+			return compareResult{match: match, byKey: true, fields: []certField{
+				{"Type", kind(s1), kind(s2), s1.keyOnly == s2.keyOnly},
+				{"Public key SHA-256", s1.pubKey, s2.pubKey, match},
+			}}
 		}
 
 		fields := []certField{
@@ -964,7 +1065,11 @@ func (m *CompareHashModel) View() string {
 				b.WriteString(fmt.Sprintf("    2: %s\n\n", f.val2))
 			}
 
-			if m.match {
+			if m.byKey && m.match {
+				b.WriteString("  " + ui.SuccessStyle.Render("✔ Same public key — the key belongs to this certificate") + "\n")
+			} else if m.byKey {
+				b.WriteString("  " + ui.ErrorStyle.Render("✖ Different public keys") + "\n")
+			} else if m.match {
 				b.WriteString("  " + ui.SuccessStyle.Render("✔ Same certificate (fingerprint match)") + "\n")
 			} else {
 				b.WriteString("  " + ui.ErrorStyle.Render("✖ Different certificates") + "\n")
